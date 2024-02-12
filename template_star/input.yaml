@@ -1,0 +1,215 @@
+# Input file for radial velocity fits
+
+# Star parameters
+star:
+  name: ""
+  period: 
+  planets: 
+    b: 
+        period: None
+        K: None
+        ecc: None
+        omega: None
+        mass: None # Mearth
+    c: 
+        period: None
+        K: None
+        ecc: None
+        omega: None
+        mass: None # Mearth
+    d: 
+        period: None
+        K: None
+        ecc: None
+        omega: None
+        mass: None # Mearth
+
+# Instrumental setup
+instruments:
+  NIRPS:
+    ref_star: ""
+    bin_label: "2" # 2 for binned data, 1 for unbinned
+    pca_label: "" # _PCA for PCA corrected data, "" for raw data
+    dtemp_suffix: ""
+
+  HARPS:
+    ref_star: ""
+    bin_label: "2" # 2 for binned data, 1 for unbinned
+    pca_label: "" # _PCA for PCA corrected data, "" for raw data
+    dtemp_suffix: "3000"
+
+CCF:
+  HARPS:
+    DRS-3-0-0: False
+    DRS-3-5: False
+
+  NIRPS:
+    DRS-3-0-0: False
+    DRS-3-5: False
+
+
+# Priors for the activity indicator model (GP)
+activity_priors:
+  chosen_activity: "Dtemp"
+  
+  # Parameters relative to the data
+  mu:
+    guess: 0.0
+    distribution: "Normal"
+    mean: 0.0
+    std: 5.0
+    min: -10.0
+    max: 10.0
+
+  noise:
+    guess: 1.0
+    distribution: "Uniform"
+    mean: 1.0
+    std: 1.0
+    min: 0.001
+    max: 100.0
+
+  # Rotation period of the star
+  GP_Prot: 
+    guess: 60.0
+    distribution: "Uniform"
+    mean: 90.0
+    std: 5.0
+    min: 10.0
+    max: 120.0
+    
+  # Amplitude of the GP
+  GP_sigma:
+    guess: 1.0
+    distribution: "Uniform"
+    mean: 1.0
+    std: 1.0
+    min: 1.0
+    max: 10.0
+
+  # Length scale of the GP  
+  GP_length:
+    guess: 100.0
+    distribution: "Uniform"
+    mean: 20.0
+    std: 10.0
+    min: 10.0
+    max: 180.0
+
+  # Number of sub-structures in a period
+  GP_gamma:
+    guess: 1.0
+    distribution: "loguniform"
+    mean: 5
+    std: 2
+    min: 1.0
+    max: 10.0
+
+
+# Priors for the radial velocity model
+RV_priors: 
+# Instrument chosen to lead activity retrieval
+  chosen_instrument: "NIRPS"
+
+  # Whether to use the activity indicator model as a prior for the RV analysis
+  use_indicator: True
+
+  # Number planets in the model
+  nplanets: 1
+
+  # Parameters relative to the data
+  mu:
+    guess: 0.0
+    distribution: "Normal"
+    mean: 0.0
+    std: 5.0
+    min: -10.0
+    max: 10.0
+
+  noise:
+    guess: 1.0
+    distribution: "loguniform"
+    mean: 1.0
+    std: 1.0
+    min: 0.001
+    max: 100.0
+
+  # Rotation period of the star
+  GP_Prot: 
+    guess: 87.0
+    distribution: "Uniform"
+    mean: 87.0
+    std: 10.0
+    min: 10.0
+    max: 110.0
+    
+  # Amplitude of the GP
+  GP_sigma:
+    guess: 25.0
+    distribution: "Uniform"
+    mean: 1.0
+    std: 1.0
+    min: 1.0
+    max: 100.0
+
+  # Length scale of the GP  
+  GP_length:
+    guess: 10.0
+    distribution: "Uniform"
+    mean: 20.0
+    std: 10.0
+    min: 1.0
+    max: 180.0
+
+  # Number of sub-structures in a period
+  GP_gamma:
+    guess: 5
+    distribution: "loguniform"
+    mean: 0.0
+    std: 10.0
+    min: 1.0
+    max: 10
+
+  # Period of the planet
+  per1:
+    guess: 17.0
+    distribution: "Uniform"
+    mean: 17.0
+    std: 5.0  
+    min: 10.0
+    max: 60.0
+
+  # Time of transit
+  tc1:
+    guess: 55.0
+    distribution: "Uniform"
+    mean: 48.0
+    std: 3.0
+    min: 50.0
+    max: 100.0
+
+  # Semi-amplitude of the planet signal
+  k1:
+    guess: 1.3
+    distribution: "Uniform"
+    mean: 1.3
+    std: 1
+    min: 0.0
+    max: 5.0
+
+  # Eccentricity of the planet
+  secosw1:
+    guess: 0.0
+    distribution: "fixed"
+    mean: 0.0
+    std: 0.1
+    min: -1.0
+    max: 1.0
+
+  sesinw1:
+    guess: 0.0
+    distribution: "fixed"
+    mean: 0.0
+    std: 0.1
+    min: -1.0
+    max: 1.0
