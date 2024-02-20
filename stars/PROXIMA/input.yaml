@@ -52,7 +52,22 @@ CCF:
 # Priors for the activity indicator model (GP)
 activity_priors:
   chosen_activity: "d2v"
-  
+
+
+  ### Parameter sharing between instruments
+  #Indices vs. parameters: 
+
+  # 0. `mu` (offset)
+  # 1. `log_wn` (jitter noise)
+  # 2. `log_amp` (amplitude)
+  # 3. `log_lambda` (Coherence length)
+  # 4. `gamma` (Number of sub-structures)
+  # 5. `log_Prot` (Rotation period)
+
+  shared_params: [5]
+
+  individual_params: [0,1,2,3,4]
+
   # Parameters relative to the data
   mu:
     guess: 0.0

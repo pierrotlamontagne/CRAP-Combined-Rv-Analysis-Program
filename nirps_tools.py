@@ -197,7 +197,7 @@ def plot_timeseries(
             )
             power_window = ls_window.power(freq)
 
-            axes[i, 1].plot(period, power, "k", label="Periodogram" if i == 0 else None)
+            axes[i, 1].plot(period, power, color, label="Periodogram" if i == 0 else None)
             axes[i, 1].plot(
                 period, power_window, "C1", label="Window Function" if i == 0 else None
             )

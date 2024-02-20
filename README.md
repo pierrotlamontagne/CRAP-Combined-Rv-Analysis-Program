@@ -45,4 +45,4 @@ This script uses the `Juliet` package to perform an RV analysis over models with
 
 
 Espinoza, N., Kossakowski, D., & Brahm, R. (2019), "juliet: a versatile modelling tool for transiting and non-transiting exoplanetary systems", MNRAS, 490(2), 2262-2283, doi: 10.1093/mnras/stz2688# LBL-reduction-and-RV-analysis
-# LBL-reduction-and-RV-analysis
+
