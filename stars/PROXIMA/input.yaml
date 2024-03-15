@@ -30,7 +30,7 @@ instruments:
     ref_star: "PROXIMA"
     bin_label: "" # 2 for binned data, 1 for unbinned
     pca_label: "" # _PCA for PCA corrected data, "" for raw data
-    dtemp_suffix: ""
+    dtemp_suffix: "3000"
 
   HARPS:
     ref_star: "PROXIMA"
@@ -64,9 +64,9 @@ activity_priors:
   # 4. `gamma` (Number of sub-structures)
   # 5. `log_Prot` (Rotation period)
 
-  shared_params: [5]
+  shared_params: [3,4,5]
 
-  individual_params: [0,1,2,3,4]
+  individual_params: [0,1,2]
 
   # Parameters relative to the data
   mu:
@@ -88,7 +88,7 @@ activity_priors:
   # Rotation period of the star
   GP_Prot: 
     guess: 91.0
-    distribution: "Uniform"
+    distribution: "Normal"
     mean: 90.0
     std: 5.0
     min: 60.0
@@ -109,7 +109,7 @@ activity_priors:
     distribution: "Uniform"
     mean: 20.0
     std: 10.0
-    min: 20.0
+    min: 40.0
     max: 180.0
 
   # Number of sub-structures in a period
@@ -118,8 +118,8 @@ activity_priors:
     distribution: "loguniform"
     mean: 5
     std: 2
-    min: 1.0
-    max: 10.0
+    min: 0.1
+    max: 4.0
 
 
 # Priors for the radial velocity model
@@ -128,7 +128,7 @@ RV_priors:
   chosen_instrument: "NIRPS"
 
   # Whether to use the activity indicator model as a prior for the RV analysis
-  use_indicator: False
+  use_indicator: True
 
   # Number planets in the model
   nplanets: 1
