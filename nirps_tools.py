@@ -9,24 +9,8 @@ from astropy.timeseries import LombScargle
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 import pickle
-from exofile.archive import ExoFile
 import requests
 
-# def sigma_clip(data, sigma=3, max_iterations=5):
-
-#     clipped_data = data.copy()
-#     mask = np.ones_like(data, dtype=bool)
-
-#     for _ in range(max_iterations):
-#         clipped_data = clipped_data[mask]
-#         mean = np.mean(clipped_data)
-#         std_dev = np.std(clipped_data)
-#         deviation = np.abs(clipped_data - mean)
-
-#         i_out = np.where(deviation > sigma * std_dev)
-#         mask[i_out] = False
-
-#     return mask
 
 ### THANKS THOMAS VANDAL
 def sigma_clip_tbl(
@@ -94,38 +78,6 @@ def find_mass(K, P, e, i, Ms):
     
     print(f"La masse de la planète est de {M_p/5.972e24} masses terrestres")
     return M_p
-
-# def get_planet_parameters(planet_name): #TODO: Does not work 
-#     # URL of the NASA Exoplanet Archive search page
-#     base_url = "https://exoplanetarchive.ipac.caltech.edu/cgi-bin/nstedAPI/nph-nstedAPI?"
-
-#     # Parameters for the search query (you can customize this)
-#     search_params = {
-#         "table": "exoplanets",
-#         "format": "json",
-#         "where": f"pl_name='{planet_name}'"
-#     }
-
-#     try:
-#         # Send a GET request to the NASA Exoplanet Archive with the search parameters
-#         response = requests.get(base_url, params=search_params)
-
-#         # Check if the request was successful
-#         response.raise_for_status()
-
-#         # Parse the JSON response
-#         data = response.json()
-
-#         # Check if the planet was found
-#         if data["exoplanets"]:
-#             return data["exoplanets"][0]  # Return the first result
-#         else:
-#             return None  # Planet not found
-
-#     except requests.exceptions.RequestException as e:
-#         print(f"Error: {e}")
-#         return None
-    
     
     
 ### THANKS THOMAS VANDAL 
@@ -289,73 +241,3 @@ def load_dict(file_path):
         return output
 
 
-### PRIORS FUNCTIONS FOR JULIET ###
-def create_priors(params_list, instruments = ['NIRPS']): 
-    
-    params = []
-    dists = []
-    hyperps = []
-    
-    for instrument in instruments:
-        for param in params_list:
-            
-            # Add the parameter's  name
-            params.append(param['name'] + '_' + instrument)
-            
-            # Add the parameter's distribution
-            dists.append(param['dist'])
-
-            # Add the parameter's hyperparameters
-            if param['dist'] == 'Uniform' or param['dist'] == 'loguniform':
-                hyperps.append([param['min'], param['max']])
-            
-            elif param['dist'] == 'Normal':
-                hyperps.append([param['mean'], param['std']])
-                
-            elif param['dist'] == 'TruncatedNormal':
-                hyperps.append([param['mean'], param['std'], param['min'], param['max']])
-                
-            elif param['dist'] == 'fixed':
-                hyperps.append(param['value'])
-                
-            else: 
-                print('Error: Distribution not recognized')
-                return None
-                
-            
-    return params, dists, hyperps
-
-def create_planet_priors(params_list): 
-    
-    params = []
-    dists = []
-    hyperps = []
-    
-    
-    for param in params_list:
-        
-        # Add the parameter's  name
-        params.append(param['name'])
-        
-        # Add the parameter's distribution
-        dists.append(param['dist'])
-
-        # Add the parameter's hyperparameters
-        if param['dist'] == 'Uniform' or param['dist'] == 'loguniform':
-            hyperps.append([param['min'], param['max']])
-        
-        elif param['dist'] == 'Normal':
-            hyperps.append([param['mean'], param['std']])
-            
-        elif param['dist'] == 'TruncatedNormal':
-            hyperps.append([param['mean'], param['std'], param['min'], param['max']])
-            
-        elif param['dist'] == 'fixed':
-            hyperps.append(param['value'])
-            
-        else: 
-            print('Error: Distribution not recognized')
-            return None
-                
-            
-    return params, dists, hyperps
