@@ -4,6 +4,10 @@ import george
 from george import kernels
 from astropy.table import Table
 from datetime import datetime as date
+from PyAstronomy.pyasl import foldAt
+import matplotlib.pyplot as plt
+from matplotlib import cm
+from astropy.timeseries import LombScargle
 
 ### For Juliet ###
 def create_priors(params_list, instruments = ['NIRPS']): 
@@ -76,30 +80,31 @@ def create_common_priors(params_list):
             
     return params, dists, hyperps
 
-
-### For Goerge + Radvel ###
+######################################################################################################################
+### For Goerge + Radvel ##############################################################################################
+######################################################################################################################
 
 class DataLoader:
-    def __init__(self, data):
+    def __init__(self, data, no_Dtemp=False):
         self.data = data
         self.star_info = self.data.get('star', [{}])  # Default to a list with one empty dictionary
         self.instruments = list(self.data['instruments'])
         self.instruments_info = self.data['instruments']
         self.activity_priors = self.data['activity_priors']
-        self.time_range = self.data['time']
         self.RV_priors = self.data['RV_priors']
+        self.nplanets = self.data['nplanets']
+        self.use_indicator = self.data['use_indicator']
         self.ccf = self.data['CCF']
         self.version = 'DRS-3-0-0'  # HARPS pipeline version
         self.rjd_rjd_off = 2400000.5
 
-        self.t_min = radvel.utils.date2jd(date(*self.time_range['start']))
-        self.t_max = radvel.utils.date2jd(date(*self.time_range['end']))
-
         self.tbl = {}
         self.t_rv, self.y_rv, self.yerr_rv = {}, {}, {}
+        self.i_good_times = {}
         self.d2v, self.sd2v, self.Dtemp, self.sDtemp = {}, {}, {}, {}
         self.med_rv_nirps = {}
         self.t_mod = {}
+        self.no_Dtemp = no_Dtemp
 
         self._load_data()
 
@@ -110,14 +115,16 @@ class DataLoader:
             suffix = self.instruments_info[instrument].get('dtemp_suffix', '')
             bin_label = self.instruments_info[instrument].get('bin_label', '')
             pca_label = self.instruments_info[instrument].get('pca_label', '')
+            self.t_min = radvel.utils.date2jd(date(*self.instruments_info[instrument].get('start_time', '')))
+            self.t_max = radvel.utils.date2jd(date(*self.instruments_info[instrument].get('end_time', '')))
 
             file_path = f'stars/{star_name}/data/lbl{bin_label}_{instrument}_{star_name}_{ref_star}{pca_label}_preprocessed.rdb'
             self.tbl[instrument] = Table.read(file_path, format='rdb')
             self.tbl[instrument]['rjd'] += self.rjd_rjd_off
 
             # Select desired times
-            i_good_times = (self.tbl[instrument]['rjd'] > self.t_min) & (self.tbl[instrument]['rjd'] < self.t_max)
-            self.tbl[instrument] = self.tbl[instrument][i_good_times]
+            self.i_good_times[instrument] = (self.tbl[instrument]['rjd'] > self.t_min) & (self.tbl[instrument]['rjd'] < self.t_max)
+            self.tbl[instrument] = self.tbl[instrument][self.i_good_times[instrument]]
 
             # RV data    
             self.t_rv[instrument], self.y_rv[instrument], self.yerr_rv[instrument] = self.tbl[instrument]['rjd'], self.tbl[instrument]['vrad'], self.tbl[instrument]['svrad']
@@ -125,8 +132,10 @@ class DataLoader:
             # Stellar activity indicators
             self.d2v[instrument], self.sd2v[instrument] = self.tbl[instrument]['d2v'] / np.max(self.tbl[instrument]['d2v']), np.abs(self.tbl[instrument]['sd2v'] / np.max(self.tbl[instrument]['d2v']))
             self.d2v[instrument] -= np.median(self.d2v[instrument])
-            self.Dtemp[instrument], self.sDtemp[instrument] = self.tbl[instrument]['DTEMP' + suffix], self.tbl[instrument]['sDTEMP' + suffix]
-            self.Dtemp[instrument] -= np.median(self.Dtemp[instrument])
+            
+            if not self.no_Dtemp:
+                self.Dtemp[instrument], self.sDtemp[instrument] = self.tbl[instrument]['DTEMP' + suffix], self.tbl[instrument]['sDTEMP' + suffix]
+                self.Dtemp[instrument] -= np.median(self.Dtemp[instrument])
 
             # Median of the RVs
             self.med_rv_nirps[instrument] = np.rint(np.median(self.tbl[instrument]['vrad'].data))
@@ -142,6 +151,7 @@ def gaussian_logp(x: float, mu: float, sigma: float) -> float:
 def uniform_logp(x: float, minval: float, maxval: float) -> float:
     # Copied from radvel for convenience
     if x <= minval or x >= maxval:
+        #print('Uniform prior violated')
         return -np.inf
     else:
         return -np.log(maxval - minval)
@@ -164,6 +174,7 @@ def mod_jeffreys_logp(x: float, minval: float, maxval: float, kneeval: float) ->
         return np.log(normalization) - np.log(x - kneeval)
 
 
+
 def gp_log_prior(p: np.ndarray, priors) -> float:
     log_prob = 0.0
 
@@ -176,6 +187,7 @@ def gp_log_prior(p: np.ndarray, priors) -> float:
         log_prob += gaussian_logp(p[0], priors['mu']['mean'], priors['mu']['std'])
     else:
         raise ValueError(f'Distribution not recognized for mu')
+    #print(log_prob)
     
     # Log White noise: Uniform
     if priors['noise']['distribution'] == 'Uniform':
@@ -186,6 +198,7 @@ def gp_log_prior(p: np.ndarray, priors) -> float:
         log_prob += gaussian_logp(p[1], np.log(priors['noise']['mean']**2), np.log(priors['noise']['std']**2))
     else:
         raise ValueError('Distribution not recognized for white noise')
+    #print(log_prob)
     
     # Log Variance: Uniform
     if priors['GP_sigma']['distribution'] == 'Uniform':
@@ -206,6 +219,7 @@ def gp_log_prior(p: np.ndarray, priors) -> float:
         log_prob += gaussian_logp(p[3], np.log(priors['GP_length']['mean']**2), np.log(priors['GP_length']['std']**2))
     else:
         raise ValueError('Distribution not recognized for length scale')
+    #print(log_prob)
     
     # Gamma: Jeffreys prior
     if priors['GP_gamma']['distribution'] == 'Uniform':
@@ -216,6 +230,7 @@ def gp_log_prior(p: np.ndarray, priors) -> float:
         log_prob += gaussian_logp(p[4], priors['GP_gamma']['mean'], priors['GP_gamma']['std'])
     else:
         raise ValueError('Distribution not recognized for gamma')
+    #(log_prob)
     
     # Log Period: Uniform
     if priors['GP_Prot']['distribution'] == 'Uniform':
@@ -226,31 +241,32 @@ def gp_log_prior(p: np.ndarray, priors) -> float:
         log_prob += gaussian_logp(p[5], np.log(priors['GP_Prot']['mean']), np.log(priors['GP_Prot']['std']))
     else:
         raise ValueError('Distribution not recognized for log period')
+    #print(log_prob)
     
     return log_prob
 
-def planet_log_prior(p: np.ndarray, priors, idx = 1) -> float:
+def log_prior_planet(p: np.ndarray, priors, idx = 0, n_planet_params=3) -> float:
     log_prob = 0.0
     
     # Period of planet
-    if priors['per'+str(idx)]['distribution'] == 'Uniform':
-        log_prob += uniform_logp(p[0], priors['per'+str(idx)]['min'], priors['per'+str(idx)]['max'])
-    elif priors['per'+str(idx)]['distribution'] == 'loguniform':
-        log_prob += jeffreys_logp(p[0], priors['per'+str(idx)]['min'], priors['per'+str(idx)]['max'])
-    elif priors['per'+str(idx)]['distribution'] == 'Normal':
-        log_prob += gaussian_logp(p[0], priors['per'+str(idx)]['mean'], priors['per'+str(idx)]['std'])
+    if priors['per'+str(idx+1)]['distribution'] == 'Uniform':
+        log_prob += uniform_logp(p[0+idx*n_planet_params], priors['per'+str(idx+1)]['min'], priors['per'+str(idx+1)]['max'])
+    elif priors['per'+str(idx+1)]['distribution'] == 'loguniform':
+        log_prob += jeffreys_logp(p[0+idx*n_planet_params], priors['per'+str(idx+1)]['min'], priors['per'+str(idx+1)]['max'])
+    elif priors['per'+str(idx+1)]['distribution'] == 'Normal':
+        log_prob += gaussian_logp(p[0+idx*n_planet_params], priors['per'+str(idx+1)]['mean'], priors['per'+str(idx+1)]['std'])
     else:
-        raise ValueError(f'Distribution not recognized for per'+str(idx))
+        raise ValueError(f'Distribution not recognized for per'+str(idx+1))
 
     # Time of conjunction
-    if priors['tc'+str(idx)]['distribution'] == 'Uniform':
-        log_prob += uniform_logp(p[1], priors['tc'+str(idx)]['min'], priors['tc'+str(idx)]['max'])
-    elif priors['tc'+str(idx)]['distribution'] == 'loguniform':
-        log_prob += jeffreys_logp(p[1], priors['tc'+str(idx)]['min'], priors['tc'+str(idx)]['max'])
-    elif priors['tc'+str(idx)]['distribution'] == 'Normal':
-        log_prob += gaussian_logp(p[1], priors['tc'+str(idx)]['mean'], priors['tc'+str(idx)]['std'])
+    if priors['tc'+str(idx+1)]['distribution'] == 'Uniform':
+        log_prob += uniform_logp(p[1+idx*n_planet_params], priors['tc'+str(idx+1)]['min'], priors['tc'+str(idx+1)]['max'])
+    elif priors['tc'+str(idx+1)]['distribution'] == 'loguniform':
+        log_prob += jeffreys_logp(p[1+idx*n_planet_params], priors['tc'+str(idx+1)]['min'], priors['tc'+str(idx+1)]['max'])
+    elif priors['tc'+str(idx+1)]['distribution'] == 'Normal':
+        log_prob += gaussian_logp(p[1+idx*n_planet_params], priors['tc'+str(idx+1)]['mean'], priors['tc'+str(idx+1)]['std'])
     else:
-        raise ValueError(f'Distribution not recognized for tc'+str(idx))
+        raise ValueError(f'Distribution not recognized for tc'+str(idx+1))
    
     
     # # Secosw
@@ -278,44 +294,85 @@ def planet_log_prior(p: np.ndarray, priors, idx = 1) -> float:
     #     raise ValueError(f'Distribution not recognized for sesinw'+str(idx))
     
     # K
-    if priors['k'+str(idx)]['distribution'] == 'Uniform':
-        log_prob += uniform_logp(p[2], priors['k'+str(idx)]['min'], priors['k'+str(idx)]['max'])
-    elif priors['k'+str(idx)]['distribution'] == 'loguniform':
-        log_prob += jeffreys_logp(p[2], priors['k'+str(idx)]['min'], priors['k'+str(idx)]['max'])
-    elif priors['k'+str(idx)]['distribution'] == 'Normal':
-        log_prob += gaussian_logp(p[2], priors['k'+str(idx)]['mean'], priors['k'+str(idx)]['std'])
-    elif priors['k'+str(idx)]['distribution'] == 'fixed':
+    if priors['k'+str(idx+1)]['distribution'] == 'Uniform':
+        log_prob += uniform_logp(p[2+idx*n_planet_params], priors['k'+str(idx+1)]['min'], priors['k'+str(idx+1)]['max'])
+    elif priors['k'+str(idx+1)]['distribution'] == 'loguniform':
+        log_prob += jeffreys_logp(p[2+idx*n_planet_params], priors['k'+str(idx+1)]['min'], priors['k'+str(idx+1)]['max'])
+    elif priors['k'+str(idx+1)]['distribution'] == 'Normal':
+        log_prob += gaussian_logp(p[2+idx*n_planet_params], priors['k'+str(idx+1)]['mean'], priors['k'+str(idx+1)]['std'])
+    elif priors['k'+str(idx+1)]['distribution'] == 'fixed':
         log_prob += 0.0
     else:
-        raise ValueError(f'Distribution not recognized for k'+str(idx))
+        raise ValueError(f'Distribution not recognized for k'+str(idx+1))
    
     
-    
     return log_prob
+    
 
+def act_log_post(p, gp_models, act, data, i_shared) -> float:
+    # Separate the parameters for each instrument
+    separated_params_list, separated_params_dict = separate_gp_params(p, i_shared, gp_models.keys())
 
-def create_combined_params(params_dict, i_shared, param_names):
-    comb_params = []
-    comb_params_labels = []
+    log_prob_tot = 0
+    for instrument, gp_model in gp_models.items():
+        gp_params = separated_params_dict[instrument]
+        log_prob = gp_log_prior(gp_params, data.activity_priors)
 
-    instruments = list(params_dict.keys())
-
-    for i in range(len(param_names)):
-        if i in i_shared:
-            # Shared parameters, use the first instrument's parameters
-            comb_params.append(params_dict[instruments[0]][i])
-            comb_params_labels.append(param_names[i])
+        if np.isfinite(log_prob):
+            gp_model.gp.set_parameter_vector(gp_params)
+            log_prob_tot += log_prob + gp_model.gp.log_likelihood(act[instrument])
         else:
-            # Separate parameters for each instrument
-            for instrument in instruments:
-                comb_params.append(params_dict[instrument][i])
-                comb_params_labels.append(f"{param_names[i]}_{instrument}")
-            
-    return comb_params, comb_params_labels
+            return -np.inf
+    return log_prob_tot
 
 
-def separate_params(comb_params, i_shared, instruments):
+def emcee_log_post(p_combined, model, data, i_shared, num_planets, n_planet_params=3, n_gp_params = 6) -> float:
+    
+    num_planets = model.num_planets
+    planet_params = p_combined[:n_planet_params*num_planets]
+    gp_params_combined = p_combined[n_planet_params*num_planets:]
+    
+    # Separate the GP parameters for each instrument
+    separated_gp_params_list, separated_gp_params_dict = separate_gp_params(gp_params_combined, i_shared, data.instruments)
+
+    # Update the planet and GP parameters in the model
+    model.update_params(np.concatenate([planet_params, separated_gp_params_list]))
+
+    # Calculate log prior for the GP hyperparameters and the planet parameters
+    gp_log_prob = 0
+    for instrument, gp_params in separated_gp_params_dict.items():
+        gp_log_prob += gp_log_prior(gp_params, data.RV_priors)
+    
+    planet_log_prior = 0
+    for p in range(num_planets):
+        planet_log_prior += log_prior_planet(planet_params, data.RV_priors, idx = p)
+        
+ 
+    if np.isfinite(gp_log_prob) and np.isfinite(planet_log_prior):
+        try:
+            # print('log likelihood', model.log_likelihood())
+            # print('gp log prob', gp_log_prob)
+            # print('planet log prior', planet_log_prior)
+            log_prob_tot = gp_log_prob + planet_log_prior + model.log_likelihood()
+            if np.isnan(log_prob_tot) or not np.isfinite(log_prob_tot):
+                return -np.inf
+            return log_prob_tot
+        except np.linalg.LinAlgError:
+            return -np.inf
+
+    return -np.inf
+
+
+# Homemade George + RadVel model
+
+def juliet_to_george(p):
+    return [p[0], np.log(p[1]**2), np.log(p[2]**2), 
+                      np.log(p[3]**2), p[4], np.log(p[5])]
+
+
+def separate_gp_params(comb_params, i_shared, instruments):
     params_dict = {instrument: [] for instrument in instruments}
+    params_list = []
     
     param_id = 0 # Index of the parameter
     i = 0 # Index of the combined parameters
@@ -333,51 +390,112 @@ def separate_params(comb_params, i_shared, instruments):
         
         param_id += 1
     
-    return params_dict
+    # Create params_list
+    for instrument in instruments:
+        params_list += params_dict[instrument]
+    
+    return params_list, params_dict
 
 
-def interleave(main_list, insert_list):
-    result = [elem for pair in zip(main_list, insert_list) for elem in pair]
-    # Ensure last element from insert_list is added only once
-    if len(main_list) == len(insert_list):
-        return result
-    else:
-        # If main_list is longer, add the remaining elements
-        result.extend(main_list[len(insert_list):])
-        # If insert_list is longer, add the remaining elements
-        result.extend(insert_list[len(main_list):])
-    return result
+def generate_param_names(param_names, i_shared, instruments):
+    """
+    Generate a list of parameter names where shared parameters remain unchanged 
+    and non-shared parameters are suffixed with their respective instrument names.
 
-def interleave_params(param_dict):
-    # Extract the instrument names and number of parameters
-    instruments = list(param_dict.keys())
-    num_params = len(param_dict[instruments[0]])
+    Args:
+        param_names (list): List of parameter names.
+        i_shared (list): Indices of shared parameters.
+        instruments (list): List of instrument names.
 
-    # Initialize an empty list to hold the interleaved parameters
-    interleaved_params = []
+    Returns:
+        list: List of parameter names with appropriate suffixes for non-shared parameters.
+    """
+    combined_param_names = []
 
-    # Loop through each parameter index
-    for param_idx in range(num_params):
-        # Loop through each instrument
-        for instrument in instruments:
-            # Append the parameter to the interleaved list
-            interleaved_params.append(param_dict[instrument][param_idx])
-
-    return interleaved_params
+    for i, param in enumerate(param_names):
+        if i in i_shared:
+            # Shared parameter
+            combined_param_names.append(param)
+        else:
+            # Non-shared parameter, append with instrument suffix
+            for instrument in instruments:
+                combined_param_names.append(f"{param}_{instrument}")
+    
+    return combined_param_names
 
 
-# Homemade George + RadVel model
 
-def juliet_to_george(p):
-    return [p[0], np.log(p[1]**2), np.log(p[2]**2), 
-                      np.log(p[3]**2), p[4], np.log(p[5])]
+# Class to deal with parameters
+class params_vector:
+    
+    '''
+    Class to manage parameter vectors for planetary and GP models.
+
+    p = [per1, tc1, k1, ... (other planets), mu_NIRPS, noise_NIRPS, amp_NIRPS, coherence_length_NIRPS, gamma_NIRPS, Prot_NIRPS, ... (other instruments)]
+    i_shared = Indices of shared parameters (e.g., GP parameters that are common across instruments).
+    '''
+    
+    def __init__(self, p, instruments, i_shared, num_planets=1, n_planet_params=3, n_gp_params=6, gp_only=False):
+        self.p = p
+        self.instruments = instruments
+        self.i_shared = i_shared
+        self.num_planets = num_planets
+        self.n_planet_params = n_planet_params
+        self.n_gp_params = n_gp_params
+        
+        if gp_only==False:
+            self.planet_params = self.p[:self.n_planet_params * self.num_planets]
+            self.gp_params = self.p[self.n_planet_params * self.num_planets:]
+            
+        else:
+            self.planet_params = []
+            self.gp_params = self.p
+        
+        # Initialize dictionaries for separated GP parameters
+        self.gp_params_dict = {instrument: [] for instrument in self.instruments}
+
+        # Fill in the separated GP parameters
+        for n, instrument in enumerate(self.instruments):
+            start_idx = n * self.n_gp_params
+            end_idx = (n + 1) * self.n_gp_params
+            self.gp_params_dict[instrument] = self.gp_params[start_idx:end_idx]
+
+    def __getitem__(self, i):
+        return self.p[i]
+
+    def __setitem__(self, i, value):
+        self.p[i] = value
+
+    def __len__(self):
+        return len(self.p)
+    
+    def combine(self):
+        '''
+        Convert separated parameter vector to combined version.
+        
+        Returns:
+            combined_params (list): Combined parameter vector.
+        '''
+
+        # Create the combined parameter vector
+        combined_params = self.planet_params + []
+        for i in range(self.n_gp_params):
+            if i in self.i_shared:
+                combined_params.append(self.gp_params_dict[self.instruments[0]][i])
+            else:
+                for instrument in self.instruments:
+                    combined_params.append(self.gp_params_dict[instrument][i])
+                
+        return combined_params
+    
 
 class QP_GP_Model:
-    def __init__(self, gp_params, t_rv, y_rv, yerr_rv):
+    def __init__(self, gp_params, t, y, yerr):
+        
         self.gp_params = gp_params
-        self.t_rv = t_rv
-        self.y_rv = y_rv
-        self.yerr_rv = yerr_rv
+        self.t = t
+        self.y = y
+        self.yerr = yerr
         self.jitter = 1e-6 # Minimum jitter to avoid numerical issues
 
         ker_sqexp = kernels.ExpSquaredKernel(metric=np.exp(gp_params[3]))
@@ -391,13 +509,14 @@ class QP_GP_Model:
             white_noise=gp_params[1],
             fit_white_noise=True,
         )
-        self.gp.compute(t_rv, yerr=yerr_rv+self.jitter)
+        self.gp.compute(t, yerr=yerr+self.jitter)
 
     def predict(self, t_mod=None):
         if t_mod is None:
-            t_mod = self.t_rv
-        gp_values = self.gp.predict(self.y_rv, t_mod)
+            t_mod = self.t
+        gp_values = self.gp.predict(self.y, t_mod)
         return gp_values[0]
+
 
 class Planet_Model:
     def __init__(self, planet_params, num_planets):
@@ -428,42 +547,51 @@ class Planet_Model:
             self.params['sesinw'+str(i)].value = 0.0
             self.params['k'+str(i)].value = p[index + 2]
             index += 3
+        
+        self.rad_model = radvel.RVModel(self.params)
 
 class Planet_GP_Model:
-    def __init__(self, p, t_rv_dict, y_rv_dict, yerr_rv_dict, num_planets=1):
+    def __init__(self, p, t_rv_dict, y_rv_dict, yerr_rv_dict, num_planets=1, n_planet_params=3, n_gp_params=6):
+        # Parameter vector
         self.p = p
+
+        # Data dictionaries for time, RV measurements, and their errors
         self.t_rv_dict = t_rv_dict
         self.y_rv_dict = y_rv_dict
         self.yerr_rv_dict = yerr_rv_dict
+
+        # List of instruments
+        self.instruments = list(t_rv_dict.keys())
+
+        # Number of planets and parameters
         self.num_planets = num_planets
+        self.n_planet_params = n_planet_params
+        self.n_gp_params = n_gp_params
 
-        planet_params = np.array(p[:3*num_planets])
+        # Separation index between planet and GP parameters
+        self.i_sep = n_planet_params * num_planets
+
+        # Isolate the planet parameters
+        planet_params = np.array(p[:self.i_sep])
         self.radvel_model = Planet_Model(planet_params, num_planets)
-        
-        # Create dictionaries to hold GP models for each instrument
+
+        # Dictionaries to hold GP parameters and models for each instrument
+        self.gp_params = {}
         self.gp_models = {}
-        
-        # Separate and interleave GP parameters
-        gp_params = np.array(p[3*num_planets:])
-        num_gp_params_per_instrument = len(gp_params) // len(t_rv_dict)
 
-        # Interleave GP parameters for each instrument
-        interleaved_gp_params = {instrument: [] for instrument in t_rv_dict.keys()}
-        for i in range(num_gp_params_per_instrument):
-            for j, instrument in enumerate(t_rv_dict.keys()):
-                interleaved_gp_params[instrument].append(gp_params[i * len(t_rv_dict) + j])
-
-        # Initialize GP models
-        for instrument, params in interleaved_gp_params.items():
-            params = np.array(params)
-            self.gp_models[instrument] = QP_GP_Model(params, t_rv_dict[instrument], y_rv_dict[instrument], yerr_rv_dict[instrument])
+        # Initialize GP models for each instrument
+        for n, instrument in enumerate(self.instruments):
+            self.gp_params[instrument] = p[self.i_sep + n * n_gp_params: self.i_sep + (n + 1) * n_gp_params]
+            self.gp_models[instrument] = QP_GP_Model(self.gp_params[instrument], t_rv_dict[instrument], self.y_rv_dict[instrument], yerr_rv_dict[instrument])
 
     def predict(self, t_mod_dict=None, return_components=False):
+        # If no t_mod_dict is provided, use the RV times
         if t_mod_dict is None:
             t_mod_dict = self.t_rv_dict
 
         predictions = {}
         for instrument, t_mod in t_mod_dict.items():
+            # Get predictions from GP and planetary models
             gp_values = self.gp_models[instrument].predict(t_mod)
             planet_values = self.radvel_model.predict(t_mod)
             predictions[instrument] = planet_values + gp_values
@@ -474,39 +602,141 @@ class Planet_GP_Model:
         return predictions
 
     def log_likelihood(self):
-        predictions = self.predict()
+        """
+        Compute the combined log likelihood for the GP and planetary models.
+
+        Returns:
+            float: Combined log likelihood.
+        """
+        combined_log_likelihood = 0
+
+        for instrument in self.instruments:
+            
+            # Predict planetary model
+            planet_predictions = self.radvel_model.predict(self.t_rv_dict[instrument])
+            
+            # Compute residuals of data minus planetary model
+            residuals_planet = self.y_rv_dict[instrument] - planet_predictions
+            
+            # Compute GP log likelihood for the residuals of the planetary model
+            self.gp_models[instrument].gp.compute(self.t_rv_dict[instrument], self.yerr_rv_dict[instrument])
+            gp_log_likelihood = self.gp_models[instrument].gp.log_likelihood(residuals_planet)
+            
+            # # Predict GP model
+            # gp_predictions = self.gp_models[instrument].predict(self.t_rv_dict[instrument])
+            
+            # # Compute residuals of data minus GP model
+            # residuals_gp = self.y_rv_dict[instrument] - gp_predictions
+            
+            # # Compute the log likelihood for the planetary model using the residuals of data minus GP model
+            # planet_log_likelihood = -0.5 * np.sum((residuals_gp / self.yerr_rv_dict[instrument])**2 + np.log(2 * np.pi * self.yerr_rv_dict[instrument]**2))
+            
+            # Add both GP and planetary log likelihoods to the combined log likelihood
+            combined_log_likelihood += gp_log_likelihood #+ planet_log_likelihood
+
+        return combined_log_likelihood
+    
+    # def log_likelihood(self):
+    #      """
+    #      Compute the combined log likelihood for the GP and planetary models.
+
+    #      Returns:
+    #          float: Combined log likelihood.
+    #      """
+         
+         
         
-        ll_total = 0
-        for instrument, pred in predictions.items():
-            try:
-                residuals = self.y_rv_dict[instrument] - pred
-                individual_ll = -0.5 * (np.sum((residuals / self.yerr_rv_dict[instrument])**2 + np.log(2 * np.pi * self.yerr_rv_dict[instrument]**2)))
-                ll_total += individual_ll
-            except np.linalg.LinAlgError:
-                return -np.inf  # Return a very bad likelihood if Cholesky decomposition fails
-        
-        return ll_total
+
 
     def update_params(self, p):
         self.p = p
-        planet_params = np.array(p[:3*self.num_planets])
-        self.radvel_model.update_params(planet_params)  # Update the planet parameters
-        
-        # Separate GP parameters
-        gp_params = p[3*self.num_planets:]
-        
-        # Number of GP parameters per instrument
-        num_gp_params_per_instrument = len(gp_params) // len(self.t_rv_dict)
-        
-        # Interleave GP parameters for each instrument
-        interleaved_gp_params = {instrument: [] for instrument in self.t_rv_dict.keys()}
-        for i in range(num_gp_params_per_instrument):
-            for j, instrument in enumerate(self.t_rv_dict.keys()):
-                interleaved_gp_params[instrument].append(gp_params[i * len(self.t_rv_dict) + j])
-        
-        # Convert lists to numpy arrays and update GP models
-        for instrument, params in interleaved_gp_params.items():
-            params = np.array(params)
-            #print(f"{instrument} GP parameters: {params}")
-            self.gp_models[instrument].gp.set_parameter_vector(params)
+
+        # Update planetary model parameters
+        planet_params = np.array(p[:self.i_sep])
+        self.radvel_model.update_params(planet_params)
+
+        # Update GP model parameters for each instrument
+        for n, instrument in enumerate(self.instruments):
+            self.gp_params[instrument] = p[self.i_sep + n * self.n_gp_params: self.i_sep + (n + 1) * self.n_gp_params]
+            self.gp_models[instrument].gp.set_parameter_vector(self.gp_params[instrument])
+
     
+    
+    
+    
+########################## Plotting functions ######################################
+
+def plot_lombscargle_periodograms(t_rv_dict, y_rv_dict, yerr_rv_dict, target_fap=0.01, max_frequency=1.0, combined=False):
+    """
+    Plots Lomb-Scargle periodograms along with the window functions for multiple instruments.
+    
+    Parameters:
+    - t_rv_dict: dict, time data for each instrument
+    - y_rv_dict: dict, radial velocity data for each instrument
+    - yerr_rv_dict: dict, errors in radial velocity data for each instrument
+    - target_fap: float, desired false alarm probability level (default is 0.01)
+    - max_frequency: float, maximum frequency for the periodogram (default is 1.0)
+    - combined: bool, whether to plot a single periodogram for the combined dataset (default is False)
+
+    Returns:
+    - None
+    """
+    instruments = t_rv_dict.keys()
+    colors = cm.coolwarm(np.linspace(0, 1, len(instruments)))
+
+    plt.figure(figsize=(10, 6))
+
+    if combined:
+        combined_times = np.concatenate([t_rv_dict[instrument] for instrument in instruments])
+        combined_y_rv = np.concatenate([y_rv_dict[instrument] for instrument in instruments])
+        combined_yerr_rv = np.concatenate([yerr_rv_dict[instrument] for instrument in instruments])
+        
+        # Calculate the Lomb-Scargle periodogram for the combined dataset
+        ls_combined = LombScargle(combined_times, combined_y_rv, dy=combined_yerr_rv)
+        freq_combined, power_combined = ls_combined.autopower(maximum_frequency=max_frequency)
+        period_combined = 1 / freq_combined
+        
+        # Calculate the false alarm probability level for the combined dataset
+        fap_combined = ls_combined.false_alarm_level(target_fap)
+        
+        # Calculate the window function for the combined dataset
+        ls_window_combined = LombScargle(combined_times, np.ones_like(combined_y_rv), dy=combined_yerr_rv, fit_mean=False, center_data=False)
+        power_window_combined = ls_window_combined.power(freq_combined)
+        
+        # Plot the periodogram and window function for the combined dataset
+        plt.plot(period_combined, power_combined, 'black', label="Combined Periodogram")
+        plt.plot(period_combined, power_window_combined, "red", linestyle='--', label="Combined Window Function")
+        plt.axhline(fap_combined, linestyle="--", color="blue", label=f"{target_fap * 100}% FA level", alpha=0.5)
+    else:
+        for idx, instrument in enumerate(instruments):
+            times = t_rv_dict[instrument]
+            y_rv = y_rv_dict[instrument]
+            yerr_rv = yerr_rv_dict[instrument]
+
+            # Calculate the Lomb-Scargle periodogram
+            ls = LombScargle(times, y_rv, dy=yerr_rv)
+            freq, power = ls.autopower(maximum_frequency=max_frequency)
+            period = 1 / freq
+            
+            # Calculate the false alarm probability level
+            fap = ls.false_alarm_level(target_fap)
+            
+            # Calculate the window function
+            ls_window = LombScargle(times, np.ones_like(y_rv), dy=yerr_rv, fit_mean=False, center_data=False)
+            power_window = ls_window.power(freq)
+            
+            # Plot the periodogram and window function
+            plt.plot(period, power, color=colors[idx], label=f'{instrument} Periodogram')
+            plt.plot(period, power_window, color=colors[idx], linestyle='--', label=f'{instrument} Window Function')
+        
+            plt.axhline(fap, linestyle="--", color="blue", label=f"{target_fap * 100}% FA level", alpha=0.5)
+    
+    # Set plot labels and title
+    plt.xlabel('Period [days]')
+    plt.ylabel('Power')
+    plt.title('Lomb-Scargle Periodograms')
+    plt.legend()
+    plt.xscale('log')
+    plt.xlim(0, max(period_combined) if combined else max(period))
+    plt.grid(True)
+    plt.show()

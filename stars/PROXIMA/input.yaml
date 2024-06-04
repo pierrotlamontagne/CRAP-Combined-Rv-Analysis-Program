@@ -31,12 +31,16 @@ instruments:
     bin_label: "" # 2 for binned data, 1 for unbinned
     pca_label: "" # _PCA for PCA corrected data, "" for raw data
     dtemp_suffix: "3000"
+    start_time: [2022,2,1]
+    end_time: [2024,5,23]
 
   HARPS:
     ref_star: "PROXIMA"
     bin_label: "" # 2 for binned data, 1 for unbinned
     pca_label: "" # _PCA for PCA corrected data, "" for raw data
     dtemp_suffix: "3000"
+    start_time: [2022,2,1]
+    end_time: [2024,5,23]
 
 
 CCF:
@@ -48,9 +52,6 @@ CCF:
     DRS-3-0-0: False
     DRS-3-5: False
 
-time:
-  start: [2024,2,1]
-  end: [2024,5,23]
 
 # Priors for the activity indicator model (GP)
 activity_priors:
@@ -130,10 +131,10 @@ RV_priors:
   chosen_instrument: "NIRPS"
 
   # Whether to use the activity indicator model as a prior for the RV analysis
-  use_indicator: True
+  use_indicator: False
 
   # Number planets in the model
-  nplanets: 2
+  nplanets: 1
 
   # Parameters relative to the data
   mu:
@@ -199,8 +200,8 @@ RV_priors:
 
   # Time of transit
   tc1:
-    guess: 60.0
-    distribution: "Uniform"
+    guess: 2457897.9
+    distribution: "Normal"
     mean: 2457897.9
     std: 1.0
     min: 50.0
