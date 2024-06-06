@@ -94,7 +94,6 @@ class DataLoader:
         self.RV_priors = self.data['RV_priors']
         self.nplanets = self.data['nplanets']
         self.use_indicator = self.data['use_indicator']
-        self.ccf = self.data['CCF']
         self.version = 'DRS-3-0-0'  # HARPS pipeline version
         self.rjd_rjd_off = 2400000.5
 
@@ -194,7 +193,7 @@ def gp_log_prior(p: np.ndarray, priors) -> float:
         log_prob += gaussian_logp(p[0], priors['mu']['mean'], priors['mu']['std'])
     else:
         raise ValueError(f'Distribution not recognized for mu')
-    #print(log_prob)
+    print(log_prob)
     
     # Log White noise: Uniform
     if priors['noise']['distribution'] == 'Uniform':
@@ -205,7 +204,7 @@ def gp_log_prior(p: np.ndarray, priors) -> float:
         log_prob += gaussian_logp(p[1], np.log(priors['noise']['mean']**2), np.log(priors['noise']['std']**2))
     else:
         raise ValueError('Distribution not recognized for white noise')
-    #print(log_prob)
+    print(log_prob)
     
     # Log Variance: Uniform
     if priors['GP_sigma']['distribution'] == 'Uniform':
@@ -216,6 +215,7 @@ def gp_log_prior(p: np.ndarray, priors) -> float:
         log_prob += gaussian_logp(p[2], np.log(priors['GP_sigma']['mean']**2), np.log(priors['GP_sigma']['std']**2))
     else: 
         raise ValueError('Distribution not recognized for amplitude')
+    print(log_prob)
     
     # Log metric (lambda**2): Uniform
     if priors['GP_length']['distribution'] == 'Uniform':
@@ -226,7 +226,7 @@ def gp_log_prior(p: np.ndarray, priors) -> float:
         log_prob += gaussian_logp(p[3], np.log(priors['GP_length']['mean']**2), np.log(priors['GP_length']['std']**2))
     else:
         raise ValueError('Distribution not recognized for length scale')
-    #print(log_prob)
+    print(log_prob)
     
     # Gamma: Jeffreys prior
     if priors['GP_gamma']['distribution'] == 'Uniform':
@@ -237,7 +237,7 @@ def gp_log_prior(p: np.ndarray, priors) -> float:
         log_prob += gaussian_logp(p[4], priors['GP_gamma']['mean'], priors['GP_gamma']['std'])
     else:
         raise ValueError('Distribution not recognized for gamma')
-    #(log_prob)
+    print(log_prob)
     
     # Log Period: Uniform
     if priors['GP_Prot']['distribution'] == 'Uniform':
@@ -248,7 +248,7 @@ def gp_log_prior(p: np.ndarray, priors) -> float:
         log_prob += gaussian_logp(p[5], np.log(priors['GP_Prot']['mean']), np.log(priors['GP_Prot']['std']))
     else:
         raise ValueError('Distribution not recognized for log period')
-    #print(log_prob)
+    print(log_prob)
     
     return log_prob
 
@@ -355,7 +355,7 @@ def emcee_log_post(p_combined, model, data, priors, i_shared, num_planets, n_pla
     for p in range(num_planets):
         planet_log_prior += log_prior_planet(planet_params, priors[data.instruments[0]], idx = p)
         
- 
+        
     if np.isfinite(gp_log_prob) and np.isfinite(planet_log_prior):
         try:
             # print('log likelihood', model.log_likelihood())
