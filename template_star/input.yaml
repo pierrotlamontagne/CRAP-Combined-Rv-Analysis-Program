@@ -31,21 +31,24 @@ instruments:
     bin_label: "2" # 2 for binned data, 1 for unbinned
     pca_label: "" # _PCA for PCA corrected data, "" for raw data
     dtemp_suffix: ""
+    start_time: [2024,1,1]
+    end_time: [2024,6,6]
+
 
   HARPS:
     ref_star: ""
     bin_label: "2" # 2 for binned data, 1 for unbinned
     pca_label: "" # _PCA for PCA corrected data, "" for raw data
     dtemp_suffix: "3000"
+    start_time: [2024,1,1]
+    end_time: [2024,6,6]
 
-CCF:
-  HARPS:
-    DRS-3-0-0: False
-    DRS-3-5: False
 
-  NIRPS:
-    DRS-3-0-0: False
-    DRS-3-5: False
+# Whether to use the activity indicator model as a prior for the RV analysis
+use_indicator: True
+
+# Number planets in the model
+nplanets: 1
 
 
 # Priors for the activity indicator model (GP)
@@ -123,14 +126,6 @@ activity_priors:
 
 # Priors for the radial velocity model
 RV_priors: 
-# Instrument chosen to lead activity retrieval
-  chosen_instrument: "NIRPS"
-
-  # Whether to use the activity indicator model as a prior for the RV analysis
-  use_indicator: True
-
-  # Number planets in the model
-  nplanets: 1
 
   # Parameters relative to the data
   mu:
@@ -212,19 +207,19 @@ RV_priors:
     min: 0.0
     max: 5.0
 
-  # Eccentricity of the planet
-  secosw1:
-    guess: 0.0
-    distribution: "fixed"
-    mean: 0.0
-    std: 0.1
-    min: -1.0
-    max: 1.0
+  # # Eccentricity of the planet
+  # secosw1:
+  #   guess: 0.0
+  #   distribution: "fixed"
+  #   mean: 0.0
+  #   std: 0.1
+  #   min: -1.0
+  #   max: 1.0
 
-  sesinw1:
-    guess: 0.0
-    distribution: "fixed"
-    mean: 0.0
-    std: 0.1
-    min: -1.0
-    max: 1.0
+  # sesinw1:
+  #   guess: 0.0
+  #   distribution: "fixed"
+  #   mean: 0.0
+  #   std: 0.1
+  #   min: -1.0
+  #   max: 1.0

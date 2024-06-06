@@ -85,7 +85,7 @@ def create_common_priors(params_list):
 ######################################################################################################################
 
 class DataLoader:
-    def __init__(self, data, no_Dtemp=False):
+    def __init__(self, data, no_Dtemp=False, raw=False):
         self.data = data
         self.star_info = self.data.get('star', [{}])  # Default to a list with one empty dictionary
         self.instruments = list(self.data['instruments'])
@@ -102,9 +102,13 @@ class DataLoader:
         self.t_rv, self.y_rv, self.yerr_rv = {}, {}, {}
         self.i_good_times = {}
         self.d2v, self.sd2v, self.Dtemp, self.sDtemp = {}, {}, {}, {}
+        self.Dtemp_suffix = {}
+        self.raw_file_path = {}
+        self.file_path = {}
         self.med_rv_nirps = {}
         self.t_mod = {}
         self.no_Dtemp = no_Dtemp
+        self.raw = raw
 
         self._load_data()
 
@@ -112,15 +116,18 @@ class DataLoader:
         for instrument in self.instruments:
             star_name = self.star_info.get('name', '')  # Accessing the first element of the star_info list
             ref_star = self.instruments_info[instrument].get('ref_star', '')
-            suffix = self.instruments_info[instrument].get('dtemp_suffix', '')
+            self.Dtemp_suffix[instrument] = self.instruments_info[instrument].get('dtemp_suffix', '')
             bin_label = self.instruments_info[instrument].get('bin_label', '')
             pca_label = self.instruments_info[instrument].get('pca_label', '')
             self.t_min = radvel.utils.date2jd(date(*self.instruments_info[instrument].get('start_time', '')))
             self.t_max = radvel.utils.date2jd(date(*self.instruments_info[instrument].get('end_time', '')))
 
-            file_path = f'stars/{star_name}/data/lbl{bin_label}_{instrument}_{star_name}_{ref_star}{pca_label}_preprocessed.rdb'
-            self.tbl[instrument] = Table.read(file_path, format='rdb')
+            self.raw_file_path[instrument] = f'stars/{star_name}/data/lbl{bin_label}_{instrument}_{star_name}_{ref_star}{pca_label}.rdb'
+            self.file_path[instrument] = f'stars/{star_name}/data/lbl{bin_label}_{instrument}_{star_name}_{ref_star}{pca_label}_preprocessed.rdb'
+            if self.raw == True: self.tbl[instrument] = Table.read(self.raw_file_path[instrument], format='rdb')
+            if self.raw == False: self.tbl[instrument] = Table.read(self.file_path[instrument], format='rdb')
             self.tbl[instrument]['rjd'] += self.rjd_rjd_off
+            self.tbl[instrument]['vrad'] -= np.median(self.tbl[instrument]['vrad'])
 
             # Select desired times
             self.i_good_times[instrument] = (self.tbl[instrument]['rjd'] > self.t_min) & (self.tbl[instrument]['rjd'] < self.t_max)
@@ -128,13 +135,13 @@ class DataLoader:
 
             # RV data    
             self.t_rv[instrument], self.y_rv[instrument], self.yerr_rv[instrument] = self.tbl[instrument]['rjd'], self.tbl[instrument]['vrad'], self.tbl[instrument]['svrad']
-
+            
             # Stellar activity indicators
             self.d2v[instrument], self.sd2v[instrument] = self.tbl[instrument]['d2v'] / np.max(self.tbl[instrument]['d2v']), np.abs(self.tbl[instrument]['sd2v'] / np.max(self.tbl[instrument]['d2v']))
             self.d2v[instrument] -= np.median(self.d2v[instrument])
             
             if not self.no_Dtemp:
-                self.Dtemp[instrument], self.sDtemp[instrument] = self.tbl[instrument]['DTEMP' + suffix], self.tbl[instrument]['sDTEMP' + suffix]
+                self.Dtemp[instrument], self.sDtemp[instrument] = self.tbl[instrument]['DTEMP' + self.Dtemp_suffix[instrument]], self.tbl[instrument]['sDTEMP' + self.Dtemp_suffix[instrument]]
                 self.Dtemp[instrument] -= np.median(self.Dtemp[instrument])
 
             # Median of the RVs
@@ -326,7 +333,7 @@ def act_log_post(p, gp_models, act, data, i_shared) -> float:
     return log_prob_tot
 
 
-def emcee_log_post(p_combined, model, data, i_shared, num_planets, n_planet_params=3, n_gp_params = 6) -> float:
+def emcee_log_post(p_combined, model, data, priors, i_shared, num_planets, n_planet_params=3, n_gp_params = 6) -> float:
     
     num_planets = model.num_planets
     planet_params = p_combined[:n_planet_params*num_planets]
@@ -340,12 +347,13 @@ def emcee_log_post(p_combined, model, data, i_shared, num_planets, n_planet_para
 
     # Calculate log prior for the GP hyperparameters and the planet parameters
     gp_log_prob = 0
-    for instrument, gp_params in separated_gp_params_dict.items():
-        gp_log_prob += gp_log_prior(gp_params, data.RV_priors)
-    
     planet_log_prior = 0
+    
+    for instrument, gp_params in separated_gp_params_dict.items():
+        gp_log_prob += gp_log_prior(gp_params, priors[instrument])
+        
     for p in range(num_planets):
-        planet_log_prior += log_prior_planet(planet_params, data.RV_priors, idx = p)
+        planet_log_prior += log_prior_planet(planet_params, priors[data.instruments[0]], idx = p)
         
  
     if np.isfinite(gp_log_prob) and np.isfinite(planet_log_prior):
@@ -395,6 +403,42 @@ def separate_gp_params(comb_params, i_shared, instruments):
         params_list += params_dict[instrument]
     
     return params_list, params_dict
+
+def separate_gp_params_samples(post_samples, i_shared, instruments):
+    """
+    Separate the post samples into a dictionary with samples for each instrument.
+    
+    Args:
+        post_samples (np.ndarray): Post samples with shape (N_samples, N_walkers, ndim).
+        i_shared (list): Indices of shared parameters.
+        instruments (list): List of instrument names.
+        
+    Returns:
+        dict: Dictionary containing the samples of the parameters for each instrument.
+    """
+    N_samples, N_walkers, ndim = post_samples.shape
+    total_samples = N_samples * N_walkers
+    params_dict = {instrument: {} for instrument in instruments}
+    shared_samples = {}
+
+    param_id = 0 # Index of the parameter in the combined vector
+    i = 0 # Index in the post_samples array
+    while i < ndim:
+        if param_id in i_shared:
+            # Shared parameters, assign the same samples to all instruments
+            shared_samples[param_id] = post_samples[:, :, i].flatten()
+            for instrument in instruments:
+                params_dict[instrument][param_id] = shared_samples[param_id]
+            i += 1
+        else:
+            # Separate parameters for each instrument
+            for instrument in instruments:
+                params_dict[instrument][param_id] = post_samples[:, :, i].flatten()
+                i += 1
+        
+        param_id += 1
+
+    return params_dict
 
 
 def generate_param_names(param_names, i_shared, instruments):

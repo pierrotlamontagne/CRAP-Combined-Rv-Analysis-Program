@@ -108,7 +108,7 @@ def plot_timeseries(
     star_rotation = None,
     candidate_planets: Dict[str, float] = None, 
     t_off: float = 0,
-    tlabel: str = "t",
+    tlabel: str = "rjd",
     color = 'blue',
 ) -> Tuple[Figure, Axes]:
     ncols = 2 if plot_ls else 1
