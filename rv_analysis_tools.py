@@ -8,6 +8,7 @@ from PyAstronomy.pyasl import foldAt
 import matplotlib.pyplot as plt
 from matplotlib import cm
 from astropy.timeseries import LombScargle
+from scipy.stats import truncnorm
 
 ### For Juliet ###
 def create_priors(params_list, instruments = ['NIRPS']): 
@@ -85,9 +86,10 @@ def create_common_priors(params_list):
 ######################################################################################################################
 
 class DataLoader:
-    def __init__(self, data, no_Dtemp=False, raw=False):
+    def __init__(self, data, raw=False):
         self.data = data
         self.star_info = self.data.get('star', [{}])  # Default to a list with one empty dictionary
+        self.star = self.star_info['name']
         self.instruments = list(self.data['instruments'])
         self.instruments_info = self.data['instruments']
         self.activity_priors = self.data['activity_priors']
@@ -98,6 +100,7 @@ class DataLoader:
         self.rjd_rjd_off = 2400000.5
 
         self.tbl = {}
+        self.ref_star = {}  
         self.t_rv, self.y_rv, self.yerr_rv = {}, {}, {}
         self.i_good_times = {}
         self.d2v, self.sd2v, self.Dtemp, self.sDtemp = {}, {}, {}, {}
@@ -106,32 +109,37 @@ class DataLoader:
         self.file_path = {}
         self.med_rv_nirps = {}
         self.t_mod = {}
-        self.no_Dtemp = no_Dtemp
+        self.no_Dtemp = self.data['no_Dtemp']
         self.raw = raw
+        
+        # What are we running?
+        self.run_activity = self.data['run_activity']
+        self.run_RV = self.data['run_RV']
 
         self._load_data()
 
     def _load_data(self):
         for instrument in self.instruments:
-            star_name = self.star_info.get('name', '')  # Accessing the first element of the star_info list
-            ref_star = self.instruments_info[instrument].get('ref_star', '')
+            self.ref_star[instrument] = self.instruments_info[instrument].get('ref_star', '')
             self.Dtemp_suffix[instrument] = self.instruments_info[instrument].get('dtemp_suffix', '')
             bin_label = self.instruments_info[instrument].get('bin_label', '')
             pca_label = self.instruments_info[instrument].get('pca_label', '')
             self.t_min = radvel.utils.date2jd(date(*self.instruments_info[instrument].get('start_time', '')))
             self.t_max = radvel.utils.date2jd(date(*self.instruments_info[instrument].get('end_time', '')))
 
-            self.raw_file_path[instrument] = f'stars/{star_name}/data/lbl{bin_label}_{instrument}_{star_name}_{ref_star}{pca_label}.rdb'
-            self.file_path[instrument] = f'stars/{star_name}/data/lbl{bin_label}_{instrument}_{star_name}_{ref_star}{pca_label}_preprocessed.rdb'
-            if self.raw == True: self.tbl[instrument] = Table.read(self.raw_file_path[instrument], format='rdb')
-            if self.raw == False: self.tbl[instrument] = Table.read(self.file_path[instrument], format='rdb')
-            self.tbl[instrument]['rjd'] += self.rjd_rjd_off
+            self.raw_file_path[instrument] = f'stars/{self.star}/data/lbl{bin_label}_{instrument}_{self.star}_{self.ref_star[instrument]}{pca_label}.rdb'
+            self.file_path[instrument] = f'stars/{self.star}/data/lbl{bin_label}_{instrument}_{self.star}_{self.ref_star[instrument]}{pca_label}_preprocessed.rdb'
+            if self.raw == True: 
+                self.tbl[instrument] = Table.read(self.raw_file_path[instrument], format='rdb')
+                self.tbl[instrument]['rjd'] += self.rjd_rjd_off
+            else: 
+                self.tbl[instrument] = Table.read(self.file_path[instrument], format='rdb')
             self.tbl[instrument]['vrad'] -= np.median(self.tbl[instrument]['vrad'])
 
             # Select desired times
             self.i_good_times[instrument] = (self.tbl[instrument]['rjd'] > self.t_min) & (self.tbl[instrument]['rjd'] < self.t_max)
             self.tbl[instrument] = self.tbl[instrument][self.i_good_times[instrument]]
-
+            
             # RV data    
             self.t_rv[instrument], self.y_rv[instrument], self.yerr_rv[instrument] = self.tbl[instrument]['rjd'], self.tbl[instrument]['vrad'], self.tbl[instrument]['svrad']
             
@@ -152,6 +160,15 @@ class DataLoader:
 def gaussian_logp(x: float, mu: float, sigma: float) -> float:
     # Copied from radvel for convenience
     return -0.5 * ((x - mu) / sigma) ** 2 - 0.5 * np.log((sigma**2) * 2.0 * np.pi)
+
+def truncated_normal_logp(x: float, mu: float, sigma: float, lower: float, upper: float) -> float:
+    # Calculate the standard deviation for the truncnorm function
+    a, b = (lower - mu) / sigma, (upper - mu) / sigma
+    
+    # Calculate the log probability density of the truncated normal distribution
+    logp = truncnorm.logpdf(x, a, b, loc=mu, scale=sigma)
+    
+    return logp
 
 
 def uniform_logp(x: float, minval: float, maxval: float) -> float:
@@ -191,9 +208,11 @@ def gp_log_prior(p: np.ndarray, priors) -> float:
         log_prob += jeffreys_logp(p[0], priors['mu']['min'], priors['mu']['max'])
     elif priors['mu']['distribution'] == 'Normal':
         log_prob += gaussian_logp(p[0], priors['mu']['mean'], priors['mu']['std'])
+    elif priors['mu']['distribution'] == 'TruncatedNormal':
+        log_prob += truncated_normal_logp(p[0], priors['mu']['mean'], priors['mu']['std'], priors['mu']['min'], priors['mu']['max'])
     else:
         raise ValueError(f'Distribution not recognized for mu')
-    print(log_prob)
+    #print(log_prob)
     
     # Log White noise: Uniform
     if priors['noise']['distribution'] == 'Uniform':
@@ -202,9 +221,11 @@ def gp_log_prior(p: np.ndarray, priors) -> float:
         log_prob += jeffreys_logp(p[1], np.log(priors['noise']['min']**2), np.log(priors['noise']['max']**2))
     elif priors['noise']['distribution'] == 'Normal':
         log_prob += gaussian_logp(p[1], np.log(priors['noise']['mean']**2), np.log(priors['noise']['std']**2))
+    elif priors['noise']['distribution'] == 'TruncatedNormal':
+        log_prob += truncated_normal_logp(p[1], np.log(priors['noise']['mean']**2), np.log(priors['noise']['std']**2), np.log(priors['noise']['min']**2), np.log(priors['noise']['max']**2))
     else:
         raise ValueError('Distribution not recognized for white noise')
-    print(log_prob)
+    #print(log_prob)
     
     # Log Variance: Uniform
     if priors['GP_sigma']['distribution'] == 'Uniform':
@@ -213,9 +234,11 @@ def gp_log_prior(p: np.ndarray, priors) -> float:
         log_prob += jeffreys_logp(p[2], np.log(priors['GP_sigma']['min']**2), np.log(priors['GP_sigma']['max']**2))
     elif priors['GP_sigma']['distribution'] == 'Normal':
         log_prob += gaussian_logp(p[2], np.log(priors['GP_sigma']['mean']**2), np.log(priors['GP_sigma']['std']**2))
+    elif priors['GP_sigma']['distribution'] == 'TruncatedNormal':
+        log_prob += truncated_normal_logp(p[2], np.log(priors['GP_sigma']['mean']**2), np.log(priors['GP_sigma']['std']**2), np.log(priors['GP_sigma']['min']**2), np.log(priors['GP_sigma']['max']**2))
     else: 
         raise ValueError('Distribution not recognized for amplitude')
-    print(log_prob)
+    #print(log_prob)
     
     # Log metric (lambda**2): Uniform
     if priors['GP_length']['distribution'] == 'Uniform':
@@ -224,9 +247,11 @@ def gp_log_prior(p: np.ndarray, priors) -> float:
         log_prob += jeffreys_logp(p[3], np.log(priors['GP_length']['min']**2), np.log(priors['GP_length']['max']**2))
     elif priors['GP_length']['distribution'] == 'Normal':
         log_prob += gaussian_logp(p[3], np.log(priors['GP_length']['mean']**2), np.log(priors['GP_length']['std']**2))
+    elif priors['GP_length']['distribution'] == 'TruncatedNormal':
+        log_prob += truncated_normal_logp(p[3], np.log(priors['GP_length']['mean']**2), np.log(priors['GP_length']['std']**2), np.log(priors['GP_length']['min']**2), np.log(priors['GP_length']['max']**2))
     else:
         raise ValueError('Distribution not recognized for length scale')
-    print(log_prob)
+    #print(log_prob)
     
     # Gamma: Jeffreys prior
     if priors['GP_gamma']['distribution'] == 'Uniform':
@@ -235,9 +260,11 @@ def gp_log_prior(p: np.ndarray, priors) -> float:
         log_prob += jeffreys_logp(p[4], priors['GP_gamma']['min'], priors['GP_gamma']['max'])
     elif priors['GP_gamma']['distribution'] == 'Normal':
         log_prob += gaussian_logp(p[4], priors['GP_gamma']['mean'], priors['GP_gamma']['std'])
+    elif priors['GP_gamma']['distribution'] == 'TruncatedNormal':
+        log_prob += truncated_normal_logp(p[4], priors['GP_gamma']['mean'], priors['GP_gamma']['std'], priors['GP_gamma']['min'], priors['GP_gamma']['max'])
     else:
         raise ValueError('Distribution not recognized for gamma')
-    print(log_prob)
+    #print(log_prob)
     
     # Log Period: Uniform
     if priors['GP_Prot']['distribution'] == 'Uniform':
@@ -246,9 +273,11 @@ def gp_log_prior(p: np.ndarray, priors) -> float:
         log_prob += jeffreys_logp(p[5], np.log(priors['GP_Prot']['min']), np.log(priors['GP_Prot']['max']))
     elif priors['GP_Prot']['distribution'] == 'Normal':
         log_prob += gaussian_logp(p[5], np.log(priors['GP_Prot']['mean']), np.log(priors['GP_Prot']['std']))
+    elif priors['GP_Prot']['distribution'] == 'TruncatedNormal':
+        log_prob += truncated_normal_logp(p[5], np.log(priors['GP_Prot']['mean']), np.log(priors['GP_Prot']['std']), np.log(priors['GP_Prot']['min']), np.log(priors['GP_Prot']['max']))
     else:
         raise ValueError('Distribution not recognized for log period')
-    print(log_prob)
+    #print(log_prob)
     
     return log_prob
 
@@ -315,8 +344,10 @@ def log_prior_planet(p: np.ndarray, priors, idx = 0, n_planet_params=3) -> float
     
     return log_prob
     
-
-def act_log_post(p, gp_models, act, data, i_shared) -> float:
+############################################
+# emcee implementation
+############################################
+def emcee_act_log_post(p, gp_models, act, data, i_shared) -> float:
     # Separate the parameters for each instrument
     separated_params_list, separated_params_dict = separate_gp_params(p, i_shared, gp_models.keys())
 
@@ -333,7 +364,7 @@ def act_log_post(p, gp_models, act, data, i_shared) -> float:
     return log_prob_tot
 
 
-def emcee_log_post(p_combined, model, data, priors, i_shared, num_planets, n_planet_params=3, n_gp_params = 6) -> float:
+def emcee_log_post(p_combined, model, data, priors, i_shared, num_planets, n_planet_params=3, n_gp_params = 6, planet_only = False) -> float:
     
     num_planets = model.num_planets
     planet_params = p_combined[:n_planet_params*num_planets]
@@ -370,6 +401,96 @@ def emcee_log_post(p_combined, model, data, priors, i_shared, num_planets, n_pla
 
     return -np.inf
 
+##############################################
+##############################################
+
+##############################################
+# dynesty implementation
+##############################################
+
+def dynesty_prior_transform(u, priors):
+    """
+    Transform the unit cube `u` to the parameter space according to the priors.
+    """
+    params = np.zeros_like(u)
+    
+    # Planet parameters
+    n_planet_params = 3
+    num_planets = len([key for key in priors.keys() if key.startswith('per')])
+    
+    for i in range(num_planets):
+        for j, param in enumerate(['per', 'tc', 'k']):
+            key = f'{param}{i+1}'
+            dist = priors[key]['dist']
+            if dist == 'Uniform':
+                params[i * n_planet_params + j] = priors[key]['min'] + u[i * n_planet_params + j] * (priors[key]['max'] - priors[key]['min'])
+            elif dist == 'Normal':
+                params[i * n_planet_params + j] = priors[key]['mean'] + u[i * n_planet_params + j] * priors[key]['std']
+            elif dist == 'TruncatedNormal':
+                a, b = (priors[key]['min'] - priors[key]['mean']) / priors[key]['std'], (priors[key]['max'] - priors[key]['mean']) / priors[key]['std']
+                params[i * n_planet_params + j] = truncnorm.ppf(u[i * n_planet_params + j], a, b, loc=priors[key]['mean'], scale=priors[key]['std'])
+            else:
+                raise ValueError(f"Unknown distribution {dist} for parameter {key}")
+
+    # GP hyperparameters
+    i_sep = n_planet_params * num_planets
+    instruments = list(priors.keys())[3:]
+    n_gp_params = 6
+    
+    for j, instrument in enumerate(instruments):
+        for k, param in enumerate(['mu', 'noise', 'GP_sigma', 'GP_length', 'GP_gamma', 'GP_Prot']):
+            key = f'{instrument}_{param}'
+            dist = priors[instrument][param]['dist']
+            if dist == 'Uniform':
+                params[i_sep + j * n_gp_params + k] = priors[instrument][param]['min'] + u[i_sep + j * n_gp_params + k] * (priors[instrument][param]['max'] - priors[instrument][param]['min'])
+            elif dist == 'Normal':
+                params[i_sep + j * n_gp_params + k] = priors[instrument][param]['mean'] + u[i_sep + j * n_gp_params + k] * priors[instrument][param]['std']
+            elif dist == 'TruncatedNormal':
+                a, b = (priors[instrument][param]['min'] - priors[instrument][param]['mean']) / priors[instrument][param]['std'], (priors[instrument][param]['max'] - priors[instrument][param]['mean']) / priors[instrument][param]['std']
+                params[i_sep + j * n_gp_params + k] = truncnorm.ppf(u[i_sep + j * n_gp_params + k], a, b, loc=priors[instrument][param]['mean'], scale=priors[instrument][param]['std'])
+            else:
+                raise ValueError(f"Unknown distribution {dist} for parameter {key}")
+    
+    return params
+
+
+def dynesty_log_likelihood(p, model):
+    """
+    Compute the log likelihood for the given parameters.
+    """
+    # Update the model paramters
+    model.update_params(p)
+    
+    try:
+        log_likelihood = model.log_likelihood()
+        if np.isnan(log_likelihood) or not np.isfinite(log_likelihood):
+            return -np.inf
+        return log_likelihood
+    except np.linalg.LinAlgError:
+        return -np.inf
+    
+#############################################################
+#############################################################
+
+
+def get_max_likelihood_params(post_samples, log_post_probs):
+    """
+    Get the maximum likelihood parameters from posterior samples.
+    
+    Args:
+    - post_samples (np.ndarray): Array of posterior samples (N_samples, N_parameters).
+    - log_post_probs (np.ndarray): Array of log-posterior probabilities (N_samples,).
+    
+    Returns:
+    - max_likelihood_params (np.ndarray): Parameters corresponding to the maximum log-posterior probability.
+    """
+    # Identify the index of the maximum log-posterior probability
+    max_log_prob_idx = np.argmax(log_post_probs)
+    
+    # Extract the parameters corresponding to the maximum log-posterior probability
+    max_likelihood_params = post_samples[max_log_prob_idx]
+    
+    return max_likelihood_params
 
 # Homemade George + RadVel model
 
@@ -679,18 +800,7 @@ class Planet_GP_Model:
             combined_log_likelihood += gp_log_likelihood #+ planet_log_likelihood
 
         return combined_log_likelihood
-    
-    # def log_likelihood(self):
-    #      """
-    #      Compute the combined log likelihood for the GP and planetary models.
-
-    #      Returns:
-    #          float: Combined log likelihood.
-    #      """
-         
-         
         
-
 
     def update_params(self, p):
         self.p = p

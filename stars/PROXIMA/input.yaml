@@ -46,8 +46,16 @@ instruments:
 # Whether to use the activity indicator model as a prior for the RV analysis
 use_indicator: True
 
-# Number planets in the model
-nplanets: 2
+# Whether there is Dtemp data or not
+no_Dtemp: True
+
+# Turn on to run the activity bayesian search
+run_activity: False
+
+# Turn on to run the RV bayesian search
+run_RV: False
+
+
 
 # Priors for the activity indicator model (GP)
 activity_priors:
@@ -120,6 +128,9 @@ activity_priors:
     min: 0.1
     max: 4.0
 
+
+# Number planets in the model
+nplanets: 2
 
 # Priors for the radial velocity model
 RV_priors: 
