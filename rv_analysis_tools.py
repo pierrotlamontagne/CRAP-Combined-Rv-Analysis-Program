@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 from astropy.timeseries import LombScargle
 from scipy.stats import truncnorm
+import copy
 
 ### For Juliet ###
 def create_priors(params_list, instruments = ['NIRPS']): 
@@ -115,6 +116,7 @@ class DataLoader:
         # What are we running?
         self.run_activity = self.data['run_activity']
         self.run_RV = self.data['run_RV']
+        self.sampler = self.data['sampler'] # MCMC or nested sampling
 
         self._load_data()
 
@@ -364,7 +366,7 @@ def emcee_act_log_post(p, gp_models, act, data, i_shared) -> float:
     return log_prob_tot
 
 
-def emcee_log_post(p_combined, model, data, priors, i_shared, num_planets, n_planet_params=3, n_gp_params = 6, planet_only = False) -> float:
+def emcee_log_post(p_combined, model, data, priors, i_shared, num_planets, n_planet_params=3, n_gp_params = 6) -> float:
     
     num_planets = model.num_planets
     planet_params = p_combined[:n_planet_params*num_planets]
@@ -406,60 +408,85 @@ def emcee_log_post(p_combined, model, data, priors, i_shared, num_planets, n_pla
 
 ##############################################
 # dynesty implementation
-##############################################
-
-def dynesty_prior_transform(u, priors):
+def dynesty_prior_transform(u, priors, model, i_shared, data, num_planets, n_planet_params=3, n_gp_params=6):
     """
     Transform the unit cube `u` to the parameter space according to the priors.
     """
+    num_planets = model.num_planets
+    planet_params = u[:n_planet_params*num_planets]
+    gp_params_combined = u[n_planet_params*num_planets:]
+    
+    priors = copy.deepcopy(priors)
+    
     params = np.zeros_like(u)
     
+    any_inst = data.instruments[0]
     # Planet parameters
-    n_planet_params = 3
-    num_planets = len([key for key in priors.keys() if key.startswith('per')])
-    
     for i in range(num_planets):
         for j, param in enumerate(['per', 'tc', 'k']):
             key = f'{param}{i+1}'
-            dist = priors[key]['dist']
+            dist = priors[any_inst][key]['distribution']
             if dist == 'Uniform':
-                params[i * n_planet_params + j] = priors[key]['min'] + u[i * n_planet_params + j] * (priors[key]['max'] - priors[key]['min'])
+                params[i * n_planet_params + j] = priors[any_inst][key]['min'] + u[i * n_planet_params + j] * (priors[any_inst][key]['max'] - priors[any_inst][key]['min'])
             elif dist == 'Normal':
-                params[i * n_planet_params + j] = priors[key]['mean'] + u[i * n_planet_params + j] * priors[key]['std']
+                params[i * n_planet_params + j] = priors[any_inst][key]['mean'] + u[i * n_planet_params + j] * priors[any_inst][key]['std']
             elif dist == 'TruncatedNormal':
-                a, b = (priors[key]['min'] - priors[key]['mean']) / priors[key]['std'], (priors[key]['max'] - priors[key]['mean']) / priors[key]['std']
-                params[i * n_planet_params + j] = truncnorm.ppf(u[i * n_planet_params + j], a, b, loc=priors[key]['mean'], scale=priors[key]['std'])
+                a, b = (priors[any_inst][key]['min'] - priors[any_inst][key]['mean']) / priors[any_inst][key]['std'], (priors[any_inst][key]['max'] - priors[any_inst][key]['mean']) / priors[any_inst][key]['std']
+                params[i * n_planet_params + j] = truncnorm.ppf(u[i * n_planet_params + j], a, b, loc=priors[any_inst][key]['mean'], scale=priors[any_inst][key]['std'])
+            elif dist == 'loguniform':
+                log_min, log_max = np.log(priors[any_inst][key]['min']), np.log(priors[any_inst][key]['max'])
+                params[i * n_planet_params + j] = np.exp(log_min + u[i * n_planet_params + j] * (log_max - log_min))
             else:
                 raise ValueError(f"Unknown distribution {dist} for parameter {key}")
 
     # GP hyperparameters
     i_sep = n_planet_params * num_planets
-    instruments = list(priors.keys())[3:]
-    n_gp_params = 6
+    instruments = data.instruments
     
-    for j, instrument in enumerate(instruments):
-        for k, param in enumerate(['mu', 'noise', 'GP_sigma', 'GP_length', 'GP_gamma', 'GP_Prot']):
-            key = f'{instrument}_{param}'
-            dist = priors[instrument][param]['dist']
+    i_param = i_sep
+    for k, param in enumerate(['mu', 'noise', 'GP_sigma', 'GP_length', 'GP_gamma', 'GP_Prot']):
+        for j, instrument in enumerate(instruments):
+            dist = priors[instrument][param]['distribution']
+            # Changing the priors to log space
+            if param == 'noise' or param == 'GP_sigma' or param == 'GP_length': 
+                priors[instrument][param]['min'], priors[instrument][param]['max'], priors[instrument][param]['mean'], priors[instrument][param]['std'] = np.log(priors[instrument][param]['min']**2), np.log(priors[instrument][param]['max']**2), np.log(priors[instrument][param]['mean']**2), np.log(priors[instrument][param]['std']**2)
+            if param == 'GP_Prot': 
+                priors[instrument][param]['min'], priors[instrument][param]['max'], priors[instrument][param]['mean'], priors[instrument][param]['std'] = np.log(priors[instrument][param]['min']), np.log(priors[instrument][param]['max']), np.log(priors[instrument][param]['mean']), np.log(priors[instrument][param]['std'])
+            
+            # Transform the parameters
             if dist == 'Uniform':
-                params[i_sep + j * n_gp_params + k] = priors[instrument][param]['min'] + u[i_sep + j * n_gp_params + k] * (priors[instrument][param]['max'] - priors[instrument][param]['min'])
+                params[i_param] = priors[instrument][param]['min'] + u[i_param] * (priors[instrument][param]['max'] - priors[instrument][param]['min'])
             elif dist == 'Normal':
-                params[i_sep + j * n_gp_params + k] = priors[instrument][param]['mean'] + u[i_sep + j * n_gp_params + k] * priors[instrument][param]['std']
+                params[i_param] = priors[instrument][param]['mean'] + u[i_param] * priors[instrument][param]['std']
             elif dist == 'TruncatedNormal':
                 a, b = (priors[instrument][param]['min'] - priors[instrument][param]['mean']) / priors[instrument][param]['std'], (priors[instrument][param]['max'] - priors[instrument][param]['mean']) / priors[instrument][param]['std']
-                params[i_sep + j * n_gp_params + k] = truncnorm.ppf(u[i_sep + j * n_gp_params + k], a, b, loc=priors[instrument][param]['mean'], scale=priors[instrument][param]['std'])
+                params[i_param] = truncnorm.ppf(u[i_param], a, b, loc=priors[instrument][param]['mean'], scale=priors[instrument][param]['std'])
+            elif dist == 'loguniform':
+                log_min, log_max = np.log(priors[instrument][param]['min']), np.log(priors[instrument][param]['max'])
+                params[i_param] = np.exp(log_min + u[i_param] * (log_max - log_min))
             else:
-                raise ValueError(f"Unknown distribution {dist} for parameter {key}")
-    
+                raise ValueError(f"Unknown distribution {dist} for parameter {param}")
+            
+            i_param+=1
+            if k in i_shared: 
+                break
+            
     return params
 
 
-def dynesty_log_likelihood(p, model):
+def dynesty_log_likelihood(p_combined, model, i_shared, data, num_planets, n_planet_params=3, n_gp_params=6):
     """
     Compute the log likelihood for the given parameters.
     """
     # Update the model paramters
-    model.update_params(p)
+    planet_params = p_combined[:n_planet_params*num_planets]
+    gp_params_combined = p_combined[n_planet_params*num_planets:]
+    
+    # Separate the GP parameters for each instrument
+    separated_gp_params_list, separated_gp_params_dict = separate_gp_params(gp_params_combined, i_shared, data.instruments)
+
+    # Update the planet and GP parameters in the model
+    model.update_params(np.concatenate([planet_params, separated_gp_params_list]))
     
     try:
         log_likelihood = model.log_likelihood()

@@ -1,0 +1,15 @@
+per1: 24.741
+tc1: 2458400.402
+k1: 3.821
+per2: 3.778
+tc2: 2458386.301
+k2: 1.958
+mu_ESPRESSO: 1.031
+mu_HARPS: 0.801
+log_wn_ESPRESSO: 1.244
+log_wn_HARPS: 0.938
+log_amp_ESPRESSO: 2.695
+log_amp_HARPS: 2.482
+log_lambda: 9.252
+gamma: 2.448
+log_Prot: 4.893

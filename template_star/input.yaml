@@ -56,6 +56,9 @@ run_activity: True
 # Turn on to run the RV bayesian search
 run_RV: True
 
+# MCMC or nested sampling
+sampler: "dynesty" # "emcee" or "dynesty"
+
 # Priors for the activity indicator model (GP)
 activity_priors:
   chosen_activity: "Dtemp"
