@@ -1,0 +1,12 @@
+mu_SpaceMuncher: 1.680 - -5.474 + 6.987
+mu_StarGazer: -4.263 - -3.948 + 3.525
+mu_AstroWiz: -3.472 - -3.889 + 5.291
+log_wn_SpaceMuncher: -0.031 - -0.300 + -0.009
+log_wn_StarGazer: -0.000 - -0.219 + -0.010
+log_wn_AstroWiz: -0.000 - -0.726 + -0.016
+log_amp_SpaceMuncher: 6.972 - 6.742 + 8.219
+log_amp_StarGazer: 8.099 - 7.788 + 8.974
+log_amp_AstroWiz: 7.277 - 7.097 + 8.467
+log_lambda: 9.248 - 9.266 + 10.703
+gamma: 3.002 - 2.851 + 4.085
+log_Prot: 4.092 - 4.090 + 4.277

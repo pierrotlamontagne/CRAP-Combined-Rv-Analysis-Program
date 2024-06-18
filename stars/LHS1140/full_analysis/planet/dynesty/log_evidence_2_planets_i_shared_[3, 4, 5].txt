@@ -1,2 +1,0 @@
-# log_evidence log_evidence_err
--787.081033 0.543052

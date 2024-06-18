@@ -10,6 +10,7 @@ from matplotlib import cm
 from astropy.timeseries import LombScargle
 from scipy.stats import truncnorm
 import copy
+from scipy.stats import norm
 
 ### For Juliet ###
 def create_priors(params_list, instruments = ['NIRPS']): 
@@ -87,75 +88,88 @@ def create_common_priors(params_list):
 ######################################################################################################################
 
 class DataLoader:
+    """
+    A class to load and preprocess radial velocity (RV) and stellar activity data for multiple instruments.
+    """
+
     def __init__(self, data, raw=False):
         self.data = data
         self.star_info = self.data.get('star', [{}])  # Default to a list with one empty dictionary
-        self.star = self.star_info['name']
-        self.instruments = list(self.data['instruments'])
-        self.instruments_info = self.data['instruments']
-        self.activity_priors = self.data['activity_priors']
-        self.RV_priors = self.data['RV_priors']
-        self.nplanets = self.data['nplanets']
-        self.use_indicator = self.data['use_indicator']
+        self.star = self.star_info['name']  # Name of the star
+        self.instruments = list(self.data['instruments'])  # List of instruments used for observations
+        self.instruments_info = self.data['instruments']  # Information about each instrument
+        self.activity_priors = self.data['activity_priors']  # Priors for the activity indicators
+        self.RV_priors = self.data['RV_priors']  # Priors for the RV measurements
+        self.nplanets = self.data['nplanets']  # Number of planets in the model
+        self.use_indicator = self.data['use_indicator']  # Whether to use activity indicators
         self.version = 'DRS-3-0-0'  # HARPS pipeline version
-        self.rjd_rjd_off = 2400000.5
+        self.rjd_rjd_off = 2400000.5  # Offset to convert RJD to Julian Date
 
-        self.tbl = {}
-        self.ref_star = {}  
-        self.t_rv, self.y_rv, self.yerr_rv = {}, {}, {}
-        self.i_good_times = {}
-        self.d2v, self.sd2v, self.Dtemp, self.sDtemp = {}, {}, {}, {}
-        self.Dtemp_suffix = {}
-        self.raw_file_path = {}
-        self.file_path = {}
-        self.med_rv_nirps = {}
-        self.t_mod = {}
-        self.no_Dtemp = self.data['no_Dtemp']
-        self.raw = raw
+        self.tbl = {}  # Dictionary to hold data tables for each instrument
+        self.ref_star = {}  # Reference star for each instrument
+        self.t_rv, self.y_rv, self.yerr_rv = {}, {}, {}  # RV data for each instrument
+        self.i_good_times = {}  # Indices of good observation times for each instrument
+        self.d2v, self.sd2v, self.Dtemp, self.sDtemp = {}, {}, {}, {}  # Stellar activity indicators for each instrument
+        self.Dtemp_suffix = {}  # Suffix for temperature difference indicator columns
+        self.raw_file_path = {}  # Paths to the raw data files for each instrument
+        self.file_path = {}  # Paths to the preprocessed data files for each instrument
+        self.med_rv_nirps = {}  # Median RV values for each instrument
+        self.t_mod = {}  # Time data for model predictions
+        self.no_Dtemp = self.data['no_Dtemp']  # Whether to exclude Dtemp indicator
+        self.raw = raw  # Whether to load raw data or preprocessed data
         
         # What are we running?
-        self.run_activity = self.data['run_activity']
-        self.run_RV = self.data['run_RV']
-        self.sampler = self.data['sampler'] # MCMC or nested sampling
+        self.run_activity = self.data['run_activity']  # Whether to run activity analysis
+        self.run_RV = self.data['run_RV']  # Whether to run RV analysis
+        self.sampler = self.data['sampler']  # Sampler type (MCMC or nested sampling)
 
-        self._load_data()
+        self._load_data()  # Load the data
 
     def _load_data(self):
+        """
+        Load data for each instrument and preprocess it.
+        """
         for instrument in self.instruments:
-            self.ref_star[instrument] = self.instruments_info[instrument].get('ref_star', '')
-            self.Dtemp_suffix[instrument] = self.instruments_info[instrument].get('dtemp_suffix', '')
-            bin_label = self.instruments_info[instrument].get('bin_label', '')
-            pca_label = self.instruments_info[instrument].get('pca_label', '')
-            self.t_min = radvel.utils.date2jd(date(*self.instruments_info[instrument].get('start_time', '')))
-            self.t_max = radvel.utils.date2jd(date(*self.instruments_info[instrument].get('end_time', '')))
+            self.ref_star[instrument] = self.instruments_info[instrument].get('ref_star', '')  # Reference star for each instrument
+            self.Dtemp_suffix[instrument] = self.instruments_info[instrument].get('dtemp_suffix', '')  # Suffix for temperature difference indicator columns
+            bin_label = self.instruments_info[instrument].get('bin_label', '')  # Bin label for the data
+            pca_label = self.instruments_info[instrument].get('pca_label', '')  # PCA label for the data
+            self.t_min = radvel.utils.date2jd(date(*self.instruments_info[instrument].get('start_time', '')))  # Start time for the data
+            self.t_max = radvel.utils.date2jd(date(*self.instruments_info[instrument].get('end_time', '')))  # End time for the data
 
+            # Paths to data files
             self.raw_file_path[instrument] = f'stars/{self.star}/data/lbl{bin_label}_{instrument}_{self.star}_{self.ref_star[instrument]}{pca_label}.rdb'
             self.file_path[instrument] = f'stars/{self.star}/data/lbl{bin_label}_{instrument}_{self.star}_{self.ref_star[instrument]}{pca_label}_preprocessed.rdb'
-            if self.raw == True: 
-                self.tbl[instrument] = Table.read(self.raw_file_path[instrument], format='rdb')
-                self.tbl[instrument]['rjd'] += self.rjd_rjd_off
-            else: 
-                self.tbl[instrument] = Table.read(self.file_path[instrument], format='rdb')
-            self.tbl[instrument]['vrad'] -= np.median(self.tbl[instrument]['vrad'])
+            
+            # Read data file
+            if self.raw:
+                self.tbl[instrument] = Table.read(self.raw_file_path[instrument], format='rdb')  # Read raw data
+                self.tbl[instrument]['rjd'] += self.rjd_rjd_off  # Convert RJD to Julian Date
+            else:
+                self.tbl[instrument] = Table.read(self.file_path[instrument], format='rdb')  # Read preprocessed data
+            self.tbl[instrument]['vrad'] -= np.median(self.tbl[instrument]['vrad'])  # Subtract median RV value
 
             # Select desired times
-            self.i_good_times[instrument] = (self.tbl[instrument]['rjd'] > self.t_min) & (self.tbl[instrument]['rjd'] < self.t_max)
-            self.tbl[instrument] = self.tbl[instrument][self.i_good_times[instrument]]
+            self.i_good_times[instrument] = (self.tbl[instrument]['rjd'] > self.t_min) & (self.tbl[instrument]['rjd'] < self.t_max)  # Good observation times
+            self.tbl[instrument] = self.tbl[instrument][self.i_good_times[instrument]]  # Filter data by good times
             
-            # RV data    
+            # RV data
             self.t_rv[instrument], self.y_rv[instrument], self.yerr_rv[instrument] = self.tbl[instrument]['rjd'], self.tbl[instrument]['vrad'], self.tbl[instrument]['svrad']
             
             # Stellar activity indicators
             self.d2v[instrument], self.sd2v[instrument] = self.tbl[instrument]['d2v'] / np.max(self.tbl[instrument]['d2v']), np.abs(self.tbl[instrument]['sd2v'] / np.max(self.tbl[instrument]['d2v']))
-            self.d2v[instrument] -= np.median(self.d2v[instrument])
+            self.d2v[instrument] -= np.median(self.d2v[instrument])  # Subtract median activity indicator
             
+            # Temperature difference indicators
             if not self.no_Dtemp:
                 self.Dtemp[instrument], self.sDtemp[instrument] = self.tbl[instrument]['DTEMP' + self.Dtemp_suffix[instrument]], self.tbl[instrument]['sDTEMP' + self.Dtemp_suffix[instrument]]
-                self.Dtemp[instrument] -= np.median(self.Dtemp[instrument])
+                self.Dtemp[instrument] -= np.median(self.Dtemp[instrument])  # Subtract median temperature difference indicator
 
             # Median of the RVs
-            self.med_rv_nirps[instrument] = np.rint(np.median(self.tbl[instrument]['vrad'].data))
-            self.t_mod[instrument] = np.linspace(np.min(self.t_rv[instrument]), np.max(self.t_rv[instrument]), 1000)
+            self.med_rv_nirps[instrument] = np.rint(np.median(self.tbl[instrument]['vrad'].data))  # Median RV value
+            
+            # Time data for model predictions
+            self.t_mod[instrument] = np.linspace(np.min(self.t_rv[instrument]), np.max(self.t_rv[instrument]), 1000)  # Model time data
 
 
 
@@ -350,6 +364,20 @@ def log_prior_planet(p: np.ndarray, priors, idx = 0, n_planet_params=3) -> float
 # emcee implementation
 ############################################
 def emcee_act_log_post(p, gp_models, act, data, i_shared) -> float:
+    """
+    Compute the log-posterior probability for the Gaussian Process (GP) activity model parameters.
+
+    Parameters:
+        p (array): Combined parameter vector.
+        gp_models (dict): Dictionary of GP models for each instrument.
+        act (dict): Dictionary of activity data for each instrument.
+        data (object): Data object containing activity priors.
+        i_shared (list): Indices of shared GP parameters.
+
+    Returns:
+        float: Log-posterior probability of the GP activity model parameters.
+    """
+    
     # Separate the parameters for each instrument
     separated_params_list, separated_params_dict = separate_gp_params(p, i_shared, gp_models.keys())
 
@@ -367,12 +395,27 @@ def emcee_act_log_post(p, gp_models, act, data, i_shared) -> float:
 
 
 def emcee_log_post(p_combined, model, data, priors, i_shared, num_planets, n_planet_params=3, n_gp_params = 6) -> float:
-    
+    """
+    Compute the log-posterior probability for the combined planetary and GP model parameters.
+
+    Parameters:
+        p_combined (array): Combined parameter vector.
+        model (object): Combined planetary and GP model.
+        data (object): Data object containing RV and activity priors.
+        priors (dict): Dictionary of priors for each instrument.
+        i_shared (list): Indices of shared GP parameters.
+        num_planets (int): Number of planets in the model.
+        n_planet_params (int): Number of planetary parameters per planet (default is 3).
+        n_gp_params (int): Number of GP parameters per instrument (default is 6).
+
+    Returns:
+        float: Log-posterior probability of the combined planetary and GP model parameters.
+    """
     num_planets = model.num_planets
     planet_params = p_combined[:n_planet_params*num_planets]
     gp_params_combined = p_combined[n_planet_params*num_planets:]
     
-    # Separate the GP parameters for each instrument
+    # Separate the GP parameters for each instrument 
     separated_gp_params_list, separated_gp_params_dict = separate_gp_params(gp_params_combined, i_shared, data.instruments)
 
     # Update the planet and GP parameters in the model
@@ -403,18 +446,119 @@ def emcee_log_post(p_combined, model, data, priors, i_shared, num_planets, n_pla
 
     return -np.inf
 
-##############################################
-##############################################
+
+def emcee_log_post_planet_only(planet_params, model, data, priors, num_planets) -> float:
+    """
+    Compute the log-posterior probability for the planetary model parameters only.
+
+    Parameters:
+        planet_params (array): Planetary parameter vector.
+        model (object): Planetary model.
+        data (object): Data object containing RV and activity priors.
+        priors (dict): Dictionary of priors for each instrument.
+        num_planets (int): Number of planets in the model.
+
+    Returns:
+        float: Log-posterior probability of the planetary model parameters.
+    """
+    
+    # Update the planet and GP parameters in the model
+    model.update_params(planet_params)
+
+    # Calculate log prior for the planet parameters
+    planet_log_prior = 0
+        
+    for p in range(num_planets):
+        planet_log_prior += log_prior_planet(planet_params, priors, idx = p)
+        
+        
+    if np.isfinite(planet_log_prior):
+        try:
+            # print('log likelihood', model.log_likelihood())
+            # print('gp log prob', gp_log_prob)
+            # print('planet log prior', planet_log_prior)
+            log_prob_tot = planet_log_prior + model.log_likelihood()
+            if np.isnan(log_prob_tot) or not np.isfinite(log_prob_tot):
+                return -np.inf
+            return log_prob_tot
+        except np.linalg.LinAlgError:
+            return -np.inf
+
+    return -np.inf
+
+def emcee_log_post_gp_only(gp_params, model, data, priors, i_shared, activity_indicator = False) -> float:
+    """
+    Compute the log-posterior probability for the GP model parameters only.
+
+    Parameters:
+        gp_params (array): GP parameter vector.
+        gp_models (dict): Dictionary of GP models for each instrument.
+        act (dict): Dictionary of activity data for each instrument.
+        data (object): Data object containing activity priors.
+        i_shared (list): Indices of shared GP parameters.
+
+    Returns:
+        float: Log-posterior probability of the GP model parameters.
+    """
+    
+    # Separate the parameters for each instrument
+    separated_params_list, separated_params_dict = separate_gp_params(gp_params, i_shared, data.instruments)
+
+    log_prob_tot = 0
+    for instrument, gp_model in model.gp_models.items():
+        gp_params = separated_params_dict[instrument]
+        log_prob = gp_log_prior(gp_params, priors[instrument])
+
+        if np.isfinite(log_prob):
+            gp_model.gp.set_parameter_vector(gp_params)
+            log_prob_tot += log_prob + gp_model.gp.log_likelihood(data.y_rv[instrument])
+        else:
+            return -np.inf
+    return log_prob_tot
+
+
+def bic_calculator(log_likelihood, n_params, n_data):
+    """
+    Calculate the Bayesian Information Criterion (BIC).
+
+    Parameters:
+        log_likelihood (float): Log-likelihood of the model.
+        n_params (int): Number of parameters in the model.
+        n_data (int): Number of data points.
+
+    Returns:
+        float: BIC value.
+    """
+    return -2*log_likelihood + n_params*np.log(n_data)
+
 
 ##############################################
 # dynesty implementation
+##############################################
+
 def dynesty_prior_transform(u, priors, model, i_shared, data, num_planets, n_planet_params=3, n_gp_params=6):
     """
     Transform the unit cube `u` to the parameter space according to the priors.
+
+    Parameters:
+        u (array): Unit cube vector.
+        priors (dict): Dictionary of priors for each instrument.
+        model (object): Combined planetary and GP model.
+        i_shared (list): Indices of shared GP parameters.
+        data (object): Data object containing RV and activity priors.
+        num_planets (int): Number of planets in the model.
+        n_planet_params (int): Number of planetary parameters per planet (default is 3).
+        n_gp_params (int): Number of GP parameters per instrument (default is 6).
+
+    Returns:
+        array: Transformed parameter vector.
     """
+    
+    # Check if all elements of u are within [0, 1]
+    if not np.all((u >= 0) & (u <= 1)):
+        raise ValueError("All elements of u must be within the interval [0, 1]")
+    
     num_planets = model.num_planets
-    planet_params = u[:n_planet_params*num_planets]
-    gp_params_combined = u[n_planet_params*num_planets:]
     
     priors = copy.deepcopy(priors)
     
@@ -429,7 +573,7 @@ def dynesty_prior_transform(u, priors, model, i_shared, data, num_planets, n_pla
             if dist == 'Uniform':
                 params[i * n_planet_params + j] = priors[any_inst][key]['min'] + u[i * n_planet_params + j] * (priors[any_inst][key]['max'] - priors[any_inst][key]['min'])
             elif dist == 'Normal':
-                params[i * n_planet_params + j] = priors[any_inst][key]['mean'] + u[i * n_planet_params + j] * priors[any_inst][key]['std']
+                params[i * n_planet_params + j] = priors[any_inst][key]['mean'] + norm.ppf(u[i * n_planet_params + j]) * priors[any_inst][key]['std']
             elif dist == 'TruncatedNormal':
                 a, b = (priors[any_inst][key]['min'] - priors[any_inst][key]['mean']) / priors[any_inst][key]['std'], (priors[any_inst][key]['max'] - priors[any_inst][key]['mean']) / priors[any_inst][key]['std']
                 params[i * n_planet_params + j] = truncnorm.ppf(u[i * n_planet_params + j], a, b, loc=priors[any_inst][key]['mean'], scale=priors[any_inst][key]['std'])
@@ -441,11 +585,10 @@ def dynesty_prior_transform(u, priors, model, i_shared, data, num_planets, n_pla
 
     # GP hyperparameters
     i_sep = n_planet_params * num_planets
-    instruments = data.instruments
     
     i_param = i_sep
     for k, param in enumerate(['mu', 'noise', 'GP_sigma', 'GP_length', 'GP_gamma', 'GP_Prot']):
-        for j, instrument in enumerate(instruments):
+        for j, instrument in enumerate(data.instruments):
             dist = priors[instrument][param]['distribution']
             # Changing the priors to log space
             if param == 'noise' or param == 'GP_sigma' or param == 'GP_length': 
@@ -457,7 +600,109 @@ def dynesty_prior_transform(u, priors, model, i_shared, data, num_planets, n_pla
             if dist == 'Uniform':
                 params[i_param] = priors[instrument][param]['min'] + u[i_param] * (priors[instrument][param]['max'] - priors[instrument][param]['min'])
             elif dist == 'Normal':
-                params[i_param] = priors[instrument][param]['mean'] + u[i_param] * priors[instrument][param]['std']
+                params[i_param] = priors[instrument][param]['mean'] + norm.ppf(u[i_param]) * priors[instrument][param]['std']
+            elif dist == 'TruncatedNormal':
+                a, b = (priors[instrument][param]['min'] - priors[instrument][param]['mean']) / priors[instrument][param]['std'], (priors[instrument][param]['max'] - priors[instrument][param]['mean']) / priors[instrument][param]['std']
+                params[i_param] = truncnorm.ppf(u[i_param], a, b, loc=priors[instrument][param]['mean'], scale=priors[instrument][param]['std'])
+            elif dist == 'loguniform':
+                log_min, log_max = np.log(priors[instrument][param]['min']), np.log(priors[instrument][param]['max'])
+                params[i_param] = np.exp(log_min + u[i_param] * (log_max - log_min))
+            else:
+                raise ValueError(f"Unknown distribution {dist} for parameter {param}")
+            
+            i_param+=1
+            if k in i_shared: 
+                break  
+            
+    return params
+
+def dynesty_prior_transform_planet_only(u, priors, model, data, num_planets, n_planet_params=3):
+    """
+    Transform the unit cube `u` to the parameter space according to the priors for planetary parameters only.
+
+    Parameters:
+        u (array): Unit cube vector.
+        priors (dict): Dictionary of priors for each instrument.
+        model (object): Planetary model.
+        data (object): Data object containing RV and activity priors.
+        num_planets (int): Number of planets in the model.
+        n_planet_params (int): Number of planetary parameters per planet (default is 3).
+
+    Returns:
+        array: Transformed parameter vector for planetary parameters only.
+    """
+    
+    
+    # Check if all elements of u are within [0, 1]
+    if not np.all((u >= 0) & (u <= 1)):
+        raise ValueError("All elements of u must be within the interval [0, 1]")
+    
+    num_planets = model.num_planets
+    
+    priors = copy.deepcopy(priors)
+    
+    params = np.zeros_like(u)
+    
+    # Planet parameters
+    for i in range(num_planets):
+        for j, param in enumerate(['per', 'tc', 'k']):
+            key = f'{param}{i+1}'
+            dist = priors[key]['distribution']
+            if dist == 'Uniform':
+                params[i * n_planet_params + j] = priors[key]['min'] + u[i * n_planet_params + j] * (priors[key]['max'] - priors[key]['min'])
+            elif dist == 'Normal':
+                params[i * n_planet_params + j] = priors[key]['mean'] + norm.ppf(u[i * n_planet_params + j]) * priors[key]['std']
+            elif dist == 'TruncatedNormal':
+                a, b = (priors[key]['min'] - priors[key]['mean']) / priors[key]['std'], (priors[key]['max'] - priors[key]['mean']) / priors[key]['std']
+                params[i * n_planet_params + j] = truncnorm.ppf(u[i * n_planet_params + j], a, b, loc=priors[key]['mean'], scale=priors[key]['std'])
+            elif dist == 'loguniform':
+                log_min, log_max = np.log(priors[key]['min']), np.log(priors[key]['max'])
+                params[i * n_planet_params + j] = np.exp(log_min + u[i * n_planet_params + j] * (log_max - log_min))
+            else:
+                raise ValueError(f'Unknown distribution {dist} for parameter {key}')
+            
+    return params
+
+def dynesty_prior_transform_gp_only(u, priors, model, data, i_shared):
+    
+    """
+    Transform the unit cube `u` to the parameter space according to the priors for GP parameters only.
+
+    Parameters:
+        u (array): Unit cube vector.
+        priors (dict): Dictionary of priors for each instrument.
+        model (object): GP model.
+        data (object): Data object containing RV and activity priors.
+        i_shared (list): Indices of shared GP parameters.
+
+    Returns:
+        array: Transformed parameter vector for GP parameters only.
+    """
+    
+    # Check if all elements of u are within [0, 1]
+    if not np.all((u >= 0) & (u <= 1)):
+        raise ValueError("All elements of u must be within the interval [0, 1]")
+    
+    priors = copy.deepcopy(priors)
+    
+    params = np.zeros_like(u)
+    
+    # GP hyperparameters
+    i_param = 0
+    for k, param in enumerate(['mu', 'noise', 'GP_sigma', 'GP_length', 'GP_gamma', 'GP_Prot']):
+        for j, instrument in enumerate(data.instruments):
+            dist = priors[instrument][param]['distribution']
+            # Changing the priors to log space
+            if param == 'noise' or param == 'GP_sigma' or param == 'GP_length': 
+                priors[instrument][param]['min'], priors[instrument][param]['max'], priors[instrument][param]['mean'], priors[instrument][param]['std'] = np.log(priors[instrument][param]['min']**2), np.log(priors[instrument][param]['max']**2), np.log(priors[instrument][param]['mean']**2), np.log(priors[instrument][param]['std']**2)
+            if param == 'GP_Prot': 
+                priors[instrument][param]['min'], priors[instrument][param]['max'], priors[instrument][param]['mean'], priors[instrument][param]['std'] = np.log(priors[instrument][param]['min']), np.log(priors[instrument][param]['max']), np.log(priors[instrument][param]['mean']), np.log(priors[instrument][param]['std'])
+            
+            # Transform the parameters
+            if dist == 'Uniform':
+                params[i_param] = priors[instrument][param]['min'] + u[i_param] * (priors[instrument][param]['max'] - priors[instrument][param]['min'])
+            elif dist == 'Normal':
+                params[i_param] = priors[instrument][param]['mean'] + norm.ppf(u[i_param]) * priors[instrument][param]['std']
             elif dist == 'TruncatedNormal':
                 a, b = (priors[instrument][param]['min'] - priors[instrument][param]['mean']) / priors[instrument][param]['std'], (priors[instrument][param]['max'] - priors[instrument][param]['mean']) / priors[instrument][param]['std']
                 params[i_param] = truncnorm.ppf(u[i_param], a, b, loc=priors[instrument][param]['mean'], scale=priors[instrument][param]['std'])
@@ -470,14 +715,30 @@ def dynesty_prior_transform(u, priors, model, i_shared, data, num_planets, n_pla
             i_param+=1
             if k in i_shared: 
                 break
-            
+    
     return params
 
 
 def dynesty_log_likelihood(p_combined, model, i_shared, data, num_planets, n_planet_params=3, n_gp_params=6):
+    
     """
-    Compute the log likelihood for the given parameters.
+    Compute the log likelihood for the combined planetary and GP model parameters.
+
+    Parameters:
+        p_combined (array): Combined parameter vector.
+        model (object): Combined planetary and GP model.
+        i_shared (list): Indices of shared GP parameters.
+        data (object): Data object containing RV and activity data.
+        num_planets (int): Number of planets in the model.
+        n_planet_params (int): Number of planetary parameters per planet (default is 3).
+        n_gp_params (int): Number of GP parameters per instrument (default is 6).
+
+    Returns:
+        float: Log likelihood of the combined planetary and GP model parameters.
     """
+
+    
+    
     # Update the model paramters
     planet_params = p_combined[:n_planet_params*num_planets]
     gp_params_combined = p_combined[n_planet_params*num_planets:]
@@ -496,6 +757,58 @@ def dynesty_log_likelihood(p_combined, model, i_shared, data, num_planets, n_pla
     except np.linalg.LinAlgError:
         return -np.inf
     
+def dynesty_log_likelihood_planet_only(planet_params, model):
+    
+    """
+    Compute the log likelihood for the planetary model parameters only.
+
+    Parameters:
+        planet_params (array): Planetary parameter vector.
+        model (object): Planetary model.
+
+    Returns:
+        float: Log likelihood of the planetary model parameters.
+    """
+    
+    # Update the model paramters
+    model.update_params(planet_params)
+    
+    try:
+        log_likelihood = model.log_likelihood()
+        if np.isnan(log_likelihood) or not np.isfinite(log_likelihood):
+            return -np.inf
+        return log_likelihood
+    except np.linalg.LinAlgError:
+        return -np.inf
+
+ 
+def dynesty_log_likelihood_gp_only(gp_params, model, data, i_shared):
+    
+    """
+    Compute the log likelihood for the GP model parameters only.
+
+    Parameters:
+        gp_params (array): GP parameter vector.
+        gp_models (dict): Dictionary of GP models for each instrument.
+        act (dict): Dictionary of activity data for each instrument.
+        i_shared (list): Indices of shared GP parameters.
+
+    Returns:
+        float: Log likelihood of the GP model parameters.
+    """
+    
+    # Separate the parameters for each instrument
+    separated_params_list, separated_params_dict = separate_gp_params(gp_params, i_shared, data.instruments)
+    
+    log_likelihood = 0
+    for instrument, gp_model in model.gp_models.items():
+        gp_params = separated_params_dict[instrument]
+        gp_model.gp.set_parameter_vector(gp_params)
+        log_likelihood += gp_model.gp.log_likelihood(data.y_rv[instrument])
+    
+    return log_likelihood
+
+
 #############################################################
 #############################################################
 
@@ -519,14 +832,37 @@ def get_max_likelihood_params(post_samples, log_post_probs):
     
     return max_likelihood_params
 
-# Homemade George + RadVel model
 
 def juliet_to_george(p):
+    """
+    Convert parameters from Juliet format to George format.
+
+    Parameters:
+        p (list): List of parameters in Juliet format.
+            [mu, noise, GP_sigma, GP_length, GP_gamma, GP_Prot]
+
+    Returns:
+        list: List of parameters in George format.
+            [mu, log(noise^2), log(GP_sigma^2), log(GP_length^2), GP_gamma, log(GP_Prot)]
+    """
     return [p[0], np.log(p[1]**2), np.log(p[2]**2), 
                       np.log(p[3]**2), p[4], np.log(p[5])]
 
 
 def separate_gp_params(comb_params, i_shared, instruments):
+    """
+    Separate the combined parameter vector into GP parameters for each instrument.
+
+    Parameters:
+        comb_params (list): Combined parameter vector.
+        i_shared (list): Indices of shared GP parameters.
+        instruments (list): List of instruments.
+
+    Returns:
+        tuple: (params_list, params_dict)
+            - params_list (list): List of separated GP parameters for all instruments.
+            - params_dict (dict): Dictionary of GP parameters for each instrument.
+    """
     params_dict = {instrument: [] for instrument in instruments}
     params_list = []
     
@@ -703,17 +1039,87 @@ class QP_GP_Model:
         )
         self.gp.compute(t, yerr=yerr+self.jitter)
 
-    def predict(self, t_mod=None):
-        if t_mod is None:
-            t_mod = self.t
-        gp_values = self.gp.predict(self.y, t_mod)
+    def predict(self, y, t):
+        
+        gp_values = self.gp.predict(y, t)
         return gp_values[0]
+    
+    def update_params(self, gp_params):
+        self.gp.set_parameter_vector(gp_params)
+        self.gp.compute(self.t, yerr=self.yerr+self.jitter)
+        
+    def log_likelihood(self):
+        return self.gp.log_likelihood(self.y)
+
+
+class QP_GP_Model_Group:
+    def __init__(self, p, t_dict, y_dict, yerr_dict, n_gp_params=6):
+        """
+        Initialize a group of QP_GP_Model instances, one for each instrument.
+        
+        Parameters:
+        gp_params_dict (dict): Dictionary of GP parameters for each instrument.
+        t_dict (dict): Dictionary of time arrays for each instrument.
+        y_dict (dict): Dictionary of RV measurements for each instrument.
+        yerr_dict (dict): Dictionary of RV measurement errors for each instrument.
+        """
+        self.p = p
+        self.t_dict = t_dict
+        self.y_dict = y_dict
+        self.yerr_dict = yerr_dict
+        self.models = {}
+        self.instruments = t_dict.keys()
+        self.n_gp_params = n_gp_params
+        self.gp_params = {}
+        self.gp_models = {}
+        
+        # Initialize GP models for each instrument
+        for n, instrument in enumerate(self.instruments):
+            self.gp_params[instrument] = self.p[n * n_gp_params:(n + 1) * n_gp_params]
+            self.gp_models[instrument] = QP_GP_Model(self.gp_params[instrument], self.t_dict[instrument],
+                                                     self.y_dict[instrument], self.yerr_dict[instrument])
+    
+    def predict(self, y, t):
+
+        predictions = {}
+        for instrument in t:
+            # Get predictions from GP
+            predictions[instrument] = self.gp_models[instrument].predict(y[instrument], t[instrument])
+
+        return predictions
+    
+    def update_params(self, gp_params):
+        """
+        Update the GP parameters for each instrument.
+        
+        Parameters:
+        gp_params (array): Parameter vector for all instruments.
+        """
+        # Update GP model parameters for each instrument
+        for n, instrument in enumerate(self.instruments):
+            self.gp_params[instrument] = gp_params[n * self.n_gp_params:(n + 1) * self.n_gp_params]
+            self.gp_models[instrument].gp.set_parameter_vector(self.gp_params[instrument])
+    
+    def log_likelihood(self):
+        """
+        Calculate the combined log likelihood for all instruments.
+        
+        Returns:
+        float: Combined log likelihood.
+        """
+        log_likelihood = 0
+        
+        for instrument, model in self.models.items():
+            log_likelihood += model.log_likelihood()
+        
+        return log_likelihood
 
 
 class Planet_Model:
-    def __init__(self, planet_params, num_planets):
+    def __init__(self, planet_params, data, num_planets):
         self.planet_params = planet_params
         self.num_planets = num_planets
+        self.data = data
         
         self.params = radvel.Parameters(num_planets, basis="per tc secosw sesinw k")
         index = 0
@@ -727,8 +1133,8 @@ class Planet_Model:
             
         self.rad_model = radvel.RVModel(self.params)
 
-    def predict(self, t_mod):
-        return self.rad_model(t_mod)
+    def predict(self, t):
+        return self.rad_model(t)
     
     def update_params(self, p):
         index = 0
@@ -741,22 +1147,25 @@ class Planet_Model:
             index += 3
         
         self.rad_model = radvel.RVModel(self.params)
+        
+    def log_likelihood(self):
+        log_like = 0
+        for instrument in self.data.instruments:
+            residuals = self.rad_model(self.data.t_rv[instrument]) - self.data.y_rv[instrument]
+            log_like += -0.5 * np.sum((residuals / self.data.yerr_rv[instrument])**2 + np.log(2 * np.pi * self.data.yerr_rv[instrument]**2))
+            
+        return log_like
 
 class Planet_GP_Model:
-    def __init__(self, p, t_rv_dict, y_rv_dict, yerr_rv_dict, num_planets=1, n_planet_params=3, n_gp_params=6):
+    def __init__(self, p, data, num_planets=1, n_planet_params=3, n_gp_params=6):
         # Parameter vector
         self.p = p
 
-        # Data dictionaries for time, RV measurements, and their errors
-        self.t_rv_dict = t_rv_dict
-        self.y_rv_dict = y_rv_dict
-        self.yerr_rv_dict = yerr_rv_dict
-
-        # List of instruments
-        self.instruments = list(t_rv_dict.keys())
+        self.data = data
 
         # Number of planets and parameters
         self.num_planets = num_planets
+        self.instruments = data.instruments
         self.n_planet_params = n_planet_params
         self.n_gp_params = n_gp_params
 
@@ -765,7 +1174,7 @@ class Planet_GP_Model:
 
         # Isolate the planet parameters
         planet_params = np.array(p[:self.i_sep])
-        self.radvel_model = Planet_Model(planet_params, num_planets)
+        self.radvel_model = Planet_Model(planet_params, data, num_planets)
 
         # Dictionaries to hold GP parameters and models for each instrument
         self.gp_params = {}
@@ -774,22 +1183,21 @@ class Planet_GP_Model:
         # Initialize GP models for each instrument
         for n, instrument in enumerate(self.instruments):
             self.gp_params[instrument] = p[self.i_sep + n * n_gp_params: self.i_sep + (n + 1) * n_gp_params]
-            self.gp_models[instrument] = QP_GP_Model(self.gp_params[instrument], t_rv_dict[instrument], self.y_rv_dict[instrument], yerr_rv_dict[instrument])
+            self.gp_models[instrument] = QP_GP_Model(self.gp_params[instrument], self.data.t_rv[instrument],
+                                                     self.data.y_rv[instrument], self.data.yerr_rv[instrument])
 
-    def predict(self, t_mod_dict=None, return_components=False):
-        # If no t_mod_dict is provided, use the RV times
-        if t_mod_dict is None:
-            t_mod_dict = self.t_rv_dict
+    def predict(self, y, t, return_components=False):
 
         predictions = {}
-        for instrument, t_mod in t_mod_dict.items():
+        for instrument in t:
             # Get predictions from GP and planetary models
-            gp_values = self.gp_models[instrument].predict(t_mod)
-            planet_values = self.radvel_model.predict(t_mod)
-            predictions[instrument] = planet_values + gp_values
+            gp_values = self.gp_models[instrument].predict(y[instrument], t[instrument])
+            planet_values = self.radvel_model.predict(t[instrument])
             
             if return_components:
                 predictions[instrument] = {'planet': planet_values, 'GP': gp_values}
+            else: 
+                predictions[instrument] = planet_values + gp_values
 
         return predictions
 
@@ -805,13 +1213,13 @@ class Planet_GP_Model:
         for instrument in self.instruments:
             
             # Predict planetary model
-            planet_predictions = self.radvel_model.predict(self.t_rv_dict[instrument])
+            planet_predictions = self.radvel_model.predict(self.data.t_rv[instrument])
             
             # Compute residuals of data minus planetary model
-            residuals_planet = self.y_rv_dict[instrument] - planet_predictions
+            residuals_planet = self.data.y_rv[instrument] - planet_predictions
             
             # Compute GP log likelihood for the residuals of the planetary model
-            self.gp_models[instrument].gp.compute(self.t_rv_dict[instrument], self.yerr_rv_dict[instrument])
+            self.gp_models[instrument].gp.compute(self.data.t_rv[instrument], self.data.yerr_rv[instrument])
             gp_log_likelihood = self.gp_models[instrument].gp.log_likelihood(residuals_planet)
             
             # # Predict GP model

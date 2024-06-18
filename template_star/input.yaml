@@ -3,7 +3,9 @@
 # Star parameters
 star:
   name: ""
-  period: 
+  period:
+  M_star: 
+  M_star_err: 
   planets: 
     b: 
         period: None

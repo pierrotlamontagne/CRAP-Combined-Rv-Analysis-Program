@@ -1,6 +1,0 @@
-mu_HARPS             Normal               0.0,5.0             
-sigma_w_HARPS        Uniform              0.001,100.0         
-GP_Prot_HARPS        Uniform              20.0,150.0          
-GP_sigma_HARPS       Uniform              1.0,10.0            
-GP_alpha_HARPS       Uniform              0.0002777777777777778,2.5e-05
-GP_Gamma_HARPS       loguniform           1.0,10.0            
