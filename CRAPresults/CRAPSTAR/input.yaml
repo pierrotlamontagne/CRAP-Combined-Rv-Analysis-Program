@@ -1,0 +1,333 @@
+# Input file for radial velocity fits
+
+# Star parameters
+star:
+  name: "CRAPSTAR"
+  period: 100.0
+  M_star: 1
+  M_star_err: 0.01
+  planets: 
+    b: 
+        period: 12.0
+        K: 5.0
+        ecc: 0.0
+        omega: None
+        mass: None # Mearth
+    c: 
+        period: 3.0
+        K: 3.0
+        ecc: 0.0
+        omega: None
+        mass: None # Mearth
+
+# Instrumental setup
+instruments:
+  SpaceMuncher:
+    ref_star: "CRAPSTAR"
+    bin_label: "" # 2 for binned data, 1 for unbinned
+    pca_label: "" # _PCA for PCA corrected data, "" for raw data
+    dtemp_suffix: ""
+    start_time: [2000,1,1]
+    end_time: [2024,6,6]
+
+  StarGazer:
+    ref_star: "CRAPSTAR"
+    bin_label: "" # 2 for binned data, 1 for unbinned
+    pca_label: "" # _PCA for PCA corrected data, "" for raw data
+    dtemp_suffix: "3000"
+    start_time: [2000,1,1]
+    end_time: [2024,6,6]
+
+  AstroWiz:
+    ref_star: "CRAPSTAR"
+    bin_label: "" # 2 for binned data, 1 for unbinned
+    pca_label: "" # _PCA for PCA corrected data, "" for raw data
+    dtemp_suffix: "3000"
+    start_time: [2000,1,1]
+    end_time: [2024,6,6]
+
+# Whether to use the activity indicator model as a prior for the RV analysis
+use_indicator: True
+
+# Whether there is Dtemp data or not
+no_Dtemp: True
+
+# Turn on to run the activity bayesian search
+run_activity: True
+
+# Turn on to run the RV bayesian search
+run_RV: True
+
+# MCMC or nested sampling
+sampler: "emcee" # "emcee" or "dynesty"
+
+# Priors for the activity indicator model (GP)
+activity_priors:
+  chosen_activity: "d2v"
+
+
+    ### Parameter sharing between instruments
+  #Indices vs. parameters: 
+
+  # 0. `mu` (offset)
+  # 1. `log_wn` (jitter noise)
+  # 2. `log_amp` (amplitude)
+  # 3. `log_lambda` (Coherence length)
+  # 4. `gamma` (Number of sub-structures)
+  # 5. `log_Prot` (Rotation period)
+
+  shared_params: [3,4,5]
+
+  individual_params: [0,1,2]
+  
+  # Parameters relative to the data
+  mu:
+    guess: 0.0
+    distribution: "Normal"
+    mean: 0.0
+    std: 5.0
+    min: -10.0
+    max: 10.0
+
+  noise:
+    guess: 1.0
+    distribution: "Uniform"
+    mean: 1.0
+    std: 1.0
+    min: 0.001
+    max: 100.0
+
+  # Rotation period of the star
+  GP_Prot: 
+    guess: 60.0
+    distribution: "Uniform"
+    mean: 90.0
+    std: 5.0
+    min: 10.0
+    max: 120.0
+    
+  # Amplitude of the GP
+  GP_sigma:
+    guess: 1.0
+    distribution: "Uniform"
+    mean: 1.0
+    std: 1.0
+    min: 0.001
+    max: 10.0
+
+  # Length scale of the GP  
+  GP_length:
+    guess: 100.0
+    distribution: "Uniform"
+    mean: 20.0
+    std: 10.0
+    min: 10.0
+    max: 180.0
+
+  # Number of sub-structures in a period
+  GP_gamma:
+    guess: 1.0
+    distribution: "loguniform"
+    mean: 5
+    std: 2
+    min: 0.1
+    max: 10.0
+
+
+# Number planets in the model
+nplanets: 2
+
+# Fitting the eccentricity or not?
+fit_ecc: False
+
+# Priors for the radial velocity model
+RV_priors: 
+
+  # Parameters relative to the data
+  mu:
+    guess: 0.0
+    distribution: "Normal"
+    mean: 0.0
+    std: 5.0
+    min: -10.0
+    max: 10.0
+
+  noise:
+    guess: 1.0
+    distribution: "Uniform"
+    mean: 1.0
+    std: 1.0
+    min: 0.001
+    max: 1.0
+
+  # Rotation period of the star
+  GP_Prot: 
+    guess: 87.0
+    distribution: "Uniform"
+    mean: 87.0
+    std: 10.0
+    min: 50.0
+    max: 150.0
+    
+  # Amplitude of the GP
+  GP_sigma:
+    guess: 25.0
+    distribution: "Uniform"
+    mean: 1.0
+    std: 1.0
+    min: 0.001
+    max: 100.0
+
+  # Length scale of the GP  
+  GP_length:
+    guess: 100.0
+    distribution: "Uniform"
+    mean: 20.0
+    std: 10.0
+    min: 100.0
+    max: 1000.0
+
+  # Number of sub-structures in a period
+  GP_gamma:
+    guess: 1
+    distribution: "loguniform"
+    mean: 0.0
+    std: 10.0
+    min: 0.1
+    max: 10
+
+  # Period of the planet
+  per1:
+    guess: 12.0
+    distribution: "Uniform"
+    mean: 17.0
+    std: 5.0  
+    min: 8.0
+    max: 16.0
+
+  # Time of transit
+  tc1:
+    guess: 2458850.0
+    distribution: "Uniform"
+    mean: 48.0
+    std: 3.0
+    min: 2458830.0
+    max: 2458870.0
+
+  # Semi-amplitude of the planet signal
+  k1:
+    guess: 5.0
+    distribution: "Uniform"
+    mean: 1.3
+    std: 1
+    min: 0.0
+    max: 10.0
+
+#   # Eccentricity of the planet
+#   e1:
+#     guess: 0.0
+#     distribution: "Uniform"
+#     mean: 0.0
+#     std: 0.1
+#     min: 0.0
+#     max: 1.0
+
+#  # Argument of periastron
+#   w1:
+#     guess: 1.57
+#     distribution: "Uniform"
+#     mean: 0.0
+#     std: 0.1
+#     min: 0.0
+#     max: 6.28318530718
+
+  # Period of the planet
+  per2:
+    guess: 3.0
+    distribution: "Uniform"
+    mean: 17.0
+    std: 5.0  
+    min: 1.0
+    max: 5.0
+
+  # Time of transit
+  tc2:
+    guess: 2458860.0
+    distribution: "Uniform"
+    mean: 48.0
+    std: 3.0
+    min: 2458850.0
+    max: 2458870.0
+
+  # Semi-amplitude of the planet signal
+  k2:
+    guess: 3.0
+    distribution: "Uniform"
+    mean: 1.3
+    std: 1
+    min: 0.0
+    max: 10.0
+
+#   # Eccentricity of the planet
+#   e2:
+#     guess: 0.0
+#     distribution: "Uniform"
+#     mean: 0.0
+#     std: 0.1
+#     min: 0.0
+#     max: 1.0
+
+#  # Argument of periastron
+#   w2:
+#     guess: 1.57
+#     distribution: "Uniform"
+#     mean: 0.0
+#     std: 0.1
+#     min: 0.0
+#     max: 6.28318530718
+
+  # Period of the planet
+  per3:
+    guess: 3.0
+    distribution: "Uniform"
+    mean: 17.0
+    std: 5.0  
+    min: 1.0
+    max: 200.0
+
+  # Time of transit
+  tc3:
+    guess: 2458860.0
+    distribution: "Uniform"
+    mean: 48.0
+    std: 3.0
+    min: 2458700.0
+    max: 2458900.0
+
+  # Semi-amplitude of the planet signal
+  k3:
+    guess: 3.0
+    distribution: "Uniform"
+    mean: 1.3
+    std: 1
+    min: 0.0
+    max: 10.0
+
+#   # Eccentricity of the planet
+#   e3:
+#     guess: 0.0
+#     distribution: "Uniform"
+#     mean: 0.0
+#     std: 0.1
+#     min: 0.0
+#     max: 1.0
+
+#  # Argument of periastron
+#   w3:
+#     guess: 1.57
+#     distribution: "Uniform"
+#     mean: 0.0
+#     std: 0.1
+#     min: 0.0
+#     max: 6.28318530718
+

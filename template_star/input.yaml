@@ -30,19 +30,19 @@ star:
 instruments:
   NIRPS:
     ref_star: ""
-    bin_label: "2" # 2 for binned data, 1 for unbinned
+    bin_label: "" # 2 for binned data, 1 for unbinned
     pca_label: "" # _PCA for PCA corrected data, "" for raw data
     dtemp_suffix: ""
-    start_time: [2024,1,1]
+    start_time: [2000,1,1]
     end_time: [2024,6,6]
 
 
   HARPS:
     ref_star: ""
-    bin_label: "2" # 2 for binned data, 1 for unbinned
+    bin_label: "" # 2 for binned data, 1 for unbinned
     pca_label: "" # _PCA for PCA corrected data, "" for raw data
     dtemp_suffix: "3000"
-    start_time: [2024,1,1]
+    start_time: [2000,1,1]
     end_time: [2024,6,6]
 
 
@@ -63,7 +63,7 @@ sampler: "dynesty" # "emcee" or "dynesty"
 
 # Priors for the activity indicator model (GP)
 activity_priors:
-  chosen_activity: "Dtemp"
+  chosen_activity: "d2v"
 
 
     ### Parameter sharing between instruments
@@ -76,9 +76,9 @@ activity_priors:
   # 4. `gamma` (Number of sub-structures)
   # 5. `log_Prot` (Rotation period)
 
-  shared_params: [0,1,2]
+  shared_params: [3,4,5]
 
-  individual_params: [3,4,5]
+  individual_params: [0,1,2]
   
   # Parameters relative to the data
   mu:
@@ -95,7 +95,7 @@ activity_priors:
     mean: 1.0
     std: 1.0
     min: 0.001
-    max: 100.0
+    max: 1.0
 
   # Rotation period of the star
   GP_Prot: 
@@ -137,6 +137,8 @@ activity_priors:
 # Number planets in the model
 nplanets: 1
 
+# Fitting the eccentricity or not?
+fit_ecc: False
 
 # Priors for the radial velocity model
 RV_priors: 
@@ -156,7 +158,7 @@ RV_priors:
     mean: 1.0
     std: 1.0
     min: 0.001
-    max: 100.0
+    max: 1.0
 
   # Rotation period of the star
   GP_Prot: 
@@ -221,19 +223,20 @@ RV_priors:
     min: 0.0
     max: 5.0
 
-  # # Eccentricity of the planet
-  # secosw1:
-  #   guess: 0.0
-  #   distribution: "fixed"
-  #   mean: 0.0
-  #   std: 0.1
-  #   min: -1.0
-  #   max: 1.0
+#   # Eccentricity of the planet
+#   e1:
+#     guess: 0.0
+#     distribution: "Uniform"
+#     mean: 0.0
+#     std: 0.1
+#     min: 0.0
+#     max: 1.0
 
-  # sesinw1:
-  #   guess: 0.0
-  #   distribution: "fixed"
-  #   mean: 0.0
-  #   std: 0.1
-  #   min: -1.0
-  #   max: 1.0
+#  # Argument of periastron
+#   w1:
+#     guess: 1.57
+#     distribution: "Uniform"
+#     mean: 0.0
+#     std: 0.1
+#     min: 0.0
+#     max: 6.28318530718

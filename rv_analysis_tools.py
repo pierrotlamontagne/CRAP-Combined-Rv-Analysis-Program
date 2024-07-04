@@ -84,7 +84,7 @@ def create_common_priors(params_list):
     return params, dists, hyperps
 
 ######################################################################################################################
-### For Goerge + Radvel ##############################################################################################
+### Generic objects and functions ####################################################################################
 ######################################################################################################################
 
 class DataLoader:
@@ -101,6 +101,7 @@ class DataLoader:
         self.activity_priors = self.data['activity_priors']  # Priors for the activity indicators
         self.RV_priors = self.data['RV_priors']  # Priors for the RV measurements
         self.nplanets = self.data['nplanets']  # Number of planets in the model
+        self.fit_ecc = self.data['fit_ecc']  # Whether to fit eccentricity or not
         self.use_indicator = self.data['use_indicator']  # Whether to use activity indicators
         self.version = 'DRS-3-0-0'  # HARPS pipeline version
         self.rjd_rjd_off = 2400000.5  # Offset to convert RJD to Julian Date
@@ -122,6 +123,12 @@ class DataLoader:
         self.run_activity = self.data['run_activity']  # Whether to run activity analysis
         self.run_RV = self.data['run_RV']  # Whether to run RV analysis
         self.sampler = self.data['sampler']  # Sampler type (MCMC or nested sampling)
+        
+        # Whether to fit eccentricity or not
+        if self.data['fit_ecc']:
+            self.n_planet_params = 5  # Number of planet parameters
+        else: 
+            self.n_planet_params = 3
 
         self._load_data()  # Load the data
 
@@ -138,8 +145,8 @@ class DataLoader:
             self.t_max = radvel.utils.date2jd(date(*self.instruments_info[instrument].get('end_time', '')))  # End time for the data
 
             # Paths to data files
-            self.raw_file_path[instrument] = f'stars/{self.star}/data/lbl{bin_label}_{instrument}_{self.star}_{self.ref_star[instrument]}{pca_label}.rdb'
-            self.file_path[instrument] = f'stars/{self.star}/data/lbl{bin_label}_{instrument}_{self.star}_{self.ref_star[instrument]}{pca_label}_preprocessed.rdb'
+            self.raw_file_path[instrument] = f'CRAPresults/{self.star}/data/lbl{bin_label}_{instrument}_{self.star}_{self.ref_star[instrument]}{pca_label}.rdb'
+            self.file_path[instrument] = f'CRAPresults/{self.star}/data/lbl{bin_label}_{instrument}_{self.star}_{self.ref_star[instrument]}{pca_label}_preprocessed.rdb'
             
             # Read data file
             if self.raw:
@@ -171,6 +178,48 @@ class DataLoader:
             # Time data for model predictions
             self.t_mod[instrument] = np.linspace(np.min(self.t_rv[instrument]), np.max(self.t_rv[instrument]), 1000)  # Model time data
 
+
+# Function to deal with directories
+# From strings to yaml inputs
+def transform_shared_params(shared_params_str):
+    """
+    Transform a string like 'share_params_3,4,5' into a list [3, 4, 5]
+    """
+    params = shared_params_str.split('_')[2]
+    return [int(x) for x in params.split(',')]
+
+def transform_nplanets(nplanets_str):
+    """
+    Transform a string like '2_planet' into an integer 2
+    """
+    return int(nplanets_str.split('_')[0])
+
+def transform_fit_ecc(fit_ecc_str):
+    """
+    Transform a string like 'no_ecc' into a boolean False
+    """
+    return fit_ecc_str == "fit_ecc"
+
+# From yaml inputs to strings
+
+def create_shared_params_str(shared_params_list):
+    """
+    Transform a list like [3, 4, 5] into a string 'share_params_3,4,5'
+    """
+    params_str = ','.join(map(str, shared_params_list))
+    return f'share_params_{params_str}'
+
+def create_nplanets_str(nplanets_int):
+    """
+    Transform an integer like 2 into a string '2_planet'
+    """
+    return f'{nplanets_int}_planet'
+
+def create_fit_ecc_str(fit_ecc_bool):
+    """
+    Transform a boolean like False into a string 'no_ecc' and True into 'fit_ecc'
+    """
+    return "fit_ecc" if fit_ecc_bool else "no_ecc"
 
 
 def gaussian_logp(x: float, mu: float, sigma: float) -> float:
@@ -319,43 +368,55 @@ def log_prior_planet(p: np.ndarray, priors, idx = 0, n_planet_params=3) -> float
         log_prob += gaussian_logp(p[1+idx*n_planet_params], priors['tc'+str(idx+1)]['mean'], priors['tc'+str(idx+1)]['std'])
     else:
         raise ValueError(f'Distribution not recognized for tc'+str(idx+1))
-   
     
-    # # Secosw
-    # if priors['secosw'+str(idx)]['distribution'] == 'Uniform':
-    #     log_prob += uniform_logp(p[2], priors['secosw'+str(idx)]['min'], priors['secosw'+str(idx)]['max'])
-    # elif priors['secosw'+str(idx)]['distribution'] == 'loguniform':
-    #     log_prob += jeffreys_logp(p[2], priors['secosw'+str(idx)]['min'], priors['secosw'+str(idx)]['max'])
-    # elif priors['secosw'+str(idx)]['distribution'] == 'Normal':
-    #     log_prob += gaussian_logp(p[2], priors['secosw'+str(idx)]['mean'], priors['secosw'+str(idx)]['std'])
-    # elif priors['secosw'+str(idx)]['distribution'] == 'fixed':
-    #     log_prob += 0.0
-    # else:
-    #     raise ValueError(f'Distribution not recognized for secosw'+str(idx))
-    
-    # # Sesinw
-    # if priors['sesinw'+str(idx)]['distribution'] == 'Uniform':
-    #     log_prob += uniform_logp(p[3], priors['sesinw'+str(idx)]['min'], priors['sesinw'+str(idx)]['max'])
-    # elif priors['sesinw'+str(idx)]['distribution'] == 'loguniform':
-    #     log_prob += jeffreys_logp(p[3], priors['sesinw'+str(idx)]['min'], priors['sesinw'+str(idx)]['max'])
-    # elif priors['sesinw'+str(idx)]['distribution'] == 'Normal':
-    #     log_prob += gaussian_logp(p[3], priors['sesinw'+str(idx)]['mean'], priors['sesinw'+str(idx)]['std'])
-    # elif priors['sesinw'+str(idx)]['distribution'] == 'fixed':
-    #     log_prob += 0.0
-    # else:
-    #     raise ValueError(f'Distribution not recognized for sesinw'+str(idx))
-    
-    # K
-    if priors['k'+str(idx+1)]['distribution'] == 'Uniform':
-        log_prob += uniform_logp(p[2+idx*n_planet_params], priors['k'+str(idx+1)]['min'], priors['k'+str(idx+1)]['max'])
-    elif priors['k'+str(idx+1)]['distribution'] == 'loguniform':
-        log_prob += jeffreys_logp(p[2+idx*n_planet_params], priors['k'+str(idx+1)]['min'], priors['k'+str(idx+1)]['max'])
-    elif priors['k'+str(idx+1)]['distribution'] == 'Normal':
-        log_prob += gaussian_logp(p[2+idx*n_planet_params], priors['k'+str(idx+1)]['mean'], priors['k'+str(idx+1)]['std'])
-    elif priors['k'+str(idx+1)]['distribution'] == 'fixed':
-        log_prob += 0.0
-    else:
-        raise ValueError(f'Distribution not recognized for k'+str(idx+1))
+    # Fitting eccentricity or not? 
+    if n_planet_params == 5: 
+        # e
+        if priors['e'+str(idx+1)]['distribution'] == 'Uniform':
+            log_prob += uniform_logp(p[2+idx*n_planet_params], priors['e'+str(idx+1)]['min'], priors['e'+str(idx+1)]['max'])
+        elif priors['e'+str(idx+1)]['distribution'] == 'loguniform':
+            log_prob += jeffreys_logp(p[2+idx*n_planet_params], priors['e'+str(idx+1)]['min'], priors['e'+str(idx+1)]['max'])
+        elif priors['e'+str(idx+1)]['distribution'] == 'Normal':
+            log_prob += gaussian_logp(p[2+idx*n_planet_params], priors['e'+str(idx+1)]['mean'], priors['e'+str(idx+1)]['std'])
+        elif priors['e'+str(idx+1)]['distribution'] == 'fixed':
+            log_prob += 0.0
+        else:
+            raise ValueError(f'Distribution not recognized for e'+str(idx))
+        
+        # w
+        if priors['w'+str(idx+1)]['distribution'] == 'Uniform':
+            log_prob += uniform_logp(p[3+idx*n_planet_params], priors['w'+str(idx+1)]['min'], priors['w'+str(idx+1)]['max'])
+        elif priors['w'+str(idx+1)]['distribution'] == 'loguniform':
+            log_prob += jeffreys_logp(p[3+idx*n_planet_params], priors['w'+str(idx+1)]['min'], priors['w'+str(idx+1)]['max'])
+        elif priors['w'+str(idx+1)]['distribution'] == 'Normal':
+            log_prob += gaussian_logp(p[3+idx*n_planet_params], priors['w'+str(idx+1)]['mean'], priors['w'+str(idx+1)]['std'])
+        elif priors['w'+str(idx+1)]['distribution'] == 'fixed':
+            log_prob += 0.0
+        else:
+            raise ValueError(f'Distribution not recognized for w'+str(idx))
+        
+        # K
+        if priors['k'+str(idx+1)]['distribution'] == 'Uniform':
+            log_prob += uniform_logp(p[4+idx*n_planet_params], priors['k'+str(idx+1)]['min'], priors['k'+str(idx+1)]['max'])
+        elif priors['k'+str(idx+1)]['distribution'] == 'loguniform':
+            log_prob += jeffreys_logp(p[4+idx*n_planet_params], priors['k'+str(idx+1)]['min'], priors['k'+str(idx+1)]['max'])
+        elif priors['k'+str(idx+1)]['distribution'] == 'Normal':
+            log_prob += gaussian_logp(p[4+idx*n_planet_params], priors['k'+str(idx+1)]['mean'], priors['k'+str(idx+1)]['std'])
+        elif priors['k'+str(idx+1)]['distribution'] == 'fixed':
+            log_prob += 0.0
+        else:
+            raise ValueError(f'Distribution not recognized for k'+str(idx+1))
+        
+    else: 
+        # K
+        if priors['k'+str(idx+1)]['distribution'] == 'Uniform':
+            log_prob += uniform_logp(p[2+idx*n_planet_params], priors['k'+str(idx+1)]['min'], priors['k'+str(idx+1)]['max'])
+        elif priors['k'+str(idx+1)]['distribution'] == 'loguniform':
+            log_prob += jeffreys_logp(p[2+idx*n_planet_params], priors['k'+str(idx+1)]['min'], priors['k'+str(idx+1)]['max'])
+        elif priors['k'+str(idx+1)]['distribution'] == 'Normal':
+            log_prob += gaussian_logp(p[2+idx*n_planet_params], priors['k'+str(idx+1)]['mean'], priors['k'+str(idx+1)]['std'])
+        else:
+            raise ValueError(f'Distribution not recognized for k'+str(idx+1))
    
     
     return log_prob
@@ -394,7 +455,7 @@ def emcee_act_log_post(p, gp_models, act, data, i_shared) -> float:
     return log_prob_tot
 
 
-def emcee_log_post(p_combined, model, data, priors, i_shared, num_planets, n_planet_params=3, n_gp_params = 6) -> float:
+def emcee_log_post(p_combined, model, data, priors, i_shared, num_planets, n_planet_params, n_gp_params = 6) -> float:
     """
     Compute the log-posterior probability for the combined planetary and GP model parameters.
 
@@ -429,7 +490,7 @@ def emcee_log_post(p_combined, model, data, priors, i_shared, num_planets, n_pla
         gp_log_prob += gp_log_prior(gp_params, priors[instrument])
         
     for p in range(num_planets):
-        planet_log_prior += log_prior_planet(planet_params, priors[data.instruments[0]], idx = p)
+        planet_log_prior += log_prior_planet(planet_params, priors[data.instruments[0]], idx = p, n_planet_params=n_planet_params)
         
         
     if np.isfinite(gp_log_prob) and np.isfinite(planet_log_prior):
@@ -447,7 +508,7 @@ def emcee_log_post(p_combined, model, data, priors, i_shared, num_planets, n_pla
     return -np.inf
 
 
-def emcee_log_post_planet_only(planet_params, model, data, priors, num_planets) -> float:
+def emcee_log_post_planet_only(planet_params, model, priors, num_planets, n_planet_params) -> float:
     """
     Compute the log-posterior probability for the planetary model parameters only.
 
@@ -469,7 +530,7 @@ def emcee_log_post_planet_only(planet_params, model, data, priors, num_planets) 
     planet_log_prior = 0
         
     for p in range(num_planets):
-        planet_log_prior += log_prior_planet(planet_params, priors, idx = p)
+        planet_log_prior += log_prior_planet(planet_params, priors, idx = p, n_planet_params=n_planet_params)
         
         
     if np.isfinite(planet_log_prior):
@@ -536,7 +597,7 @@ def bic_calculator(log_likelihood, n_params, n_data):
 # dynesty implementation
 ##############################################
 
-def dynesty_prior_transform(u, priors, model, i_shared, data, num_planets, n_planet_params=3, n_gp_params=6):
+def dynesty_prior_transform(u, priors, model, i_shared, data, num_planets, n_planet_params, n_gp_params=6):
     """
     Transform the unit cube `u` to the parameter space according to the priors.
 
@@ -565,9 +626,15 @@ def dynesty_prior_transform(u, priors, model, i_shared, data, num_planets, n_pla
     params = np.zeros_like(u)
     
     any_inst = data.instruments[0]
+    
+    if n_planet_params == 5: 
+        planet_params_labels = ['per', 'tc', 'e', 'w', 'k']
+    else:
+        planet_params_labels = ['per', 'tc', 'k']
+        
     # Planet parameters
     for i in range(num_planets):
-        for j, param in enumerate(['per', 'tc', 'k']):
+        for j, param in enumerate(planet_params_labels):
             key = f'{param}{i+1}'
             dist = priors[any_inst][key]['distribution']
             if dist == 'Uniform':
@@ -616,7 +683,7 @@ def dynesty_prior_transform(u, priors, model, i_shared, data, num_planets, n_pla
             
     return params
 
-def dynesty_prior_transform_planet_only(u, priors, model, data, num_planets, n_planet_params=3):
+def dynesty_prior_transform_planet_only(u, priors, model, data, num_planets, n_planet_params):
     """
     Transform the unit cube `u` to the parameter space according to the priors for planetary parameters only.
 
@@ -643,9 +710,14 @@ def dynesty_prior_transform_planet_only(u, priors, model, data, num_planets, n_p
     
     params = np.zeros_like(u)
     
+    if n_planet_params == 5: 
+        planet_params_labels = ['per', 'tc', 'e', 'w', 'k']
+    else:
+        planet_params_labels = ['per', 'tc', 'k']
+    
     # Planet parameters
     for i in range(num_planets):
-        for j, param in enumerate(['per', 'tc', 'k']):
+        for j, param in enumerate(planet_params_labels):
             key = f'{param}{i+1}'
             dist = priors[key]['distribution']
             if dist == 'Uniform':
@@ -719,7 +791,7 @@ def dynesty_prior_transform_gp_only(u, priors, model, data, i_shared):
     return params
 
 
-def dynesty_log_likelihood(p_combined, model, i_shared, data, num_planets, n_planet_params=3, n_gp_params=6):
+def dynesty_log_likelihood(p_combined, model, i_shared, data, num_planets, n_planet_params, n_gp_params=6):
     
     """
     Compute the log likelihood for the combined planetary and GP model parameters.
@@ -1116,20 +1188,26 @@ class QP_GP_Model_Group:
 
 
 class Planet_Model:
-    def __init__(self, planet_params, data, num_planets):
+    def __init__(self, planet_params, data, num_planets, n_planet_params=3):
         self.planet_params = planet_params
         self.num_planets = num_planets
         self.data = data
+        self.n_planet_params = n_planet_params
         
-        self.params = radvel.Parameters(num_planets, basis="per tc secosw sesinw k")
+        self.params = radvel.Parameters(num_planets, basis="per tc e w k")
         index = 0
         for i in range(1, num_planets + 1):
             self.params['per'+str(i)].value = planet_params[index]
             self.params['tc'+str(i)].value = planet_params[index + 1]
-            self.params['secosw'+str(i)].value = 0.0  # Fixed for now (TODO)
-            self.params['sesinw'+str(i)].value = 0.0  # Fixed for now (TODO)
-            self.params['k'+str(i)].value = planet_params[index + 2]
-            index += 3  # Move to the next set of planet parameters
+            if n_planet_params == 5:
+                self.params['e'+str(i)].value = planet_params[index+2]  
+                self.params['w'+str(i)].value = planet_params[index+3]  
+                self.params['k'+str(i)].value = planet_params[index + 4]
+            else: 
+                self.params['e'+str(i)].value = 0.0 # Fixed
+                self.params['w'+str(i)].value = 1.57 # Fixed
+                self.params['k'+str(i)].value = planet_params[index + 2]
+            index += n_planet_params  # Move to the next set of planet parameters
             
         self.rad_model = radvel.RVModel(self.params)
 
@@ -1141,11 +1219,16 @@ class Planet_Model:
         for i in range(1, self.num_planets + 1):
             self.params['per'+str(i)].value = p[index]
             self.params['tc'+str(i)].value = p[index + 1]
-            self.params['secosw'+str(i)].value = 0.0
-            self.params['sesinw'+str(i)].value = 0.0
-            self.params['k'+str(i)].value = p[index + 2]
-            index += 3
-        
+            if self.n_planet_params == 5:
+                self.params['e'+str(i)].value = p[index+2]  # Fixed for now (TODO)
+                self.params['w'+str(i)].value = p[index+3]  # Fixed for now (TODO)
+                self.params['k'+str(i)].value = p[index + 4]
+            else: 
+                self.params['e'+str(i)].value = 0.0 # Fixed
+                self.params['w'+str(i)].value = 1.57 # Fixed
+                self.params['k'+str(i)].value = p[index + 2]
+            index += self.n_planet_params  # Move to the next set of planet parameters
+            
         self.rad_model = radvel.RVModel(self.params)
         
     def log_likelihood(self):
@@ -1174,7 +1257,7 @@ class Planet_GP_Model:
 
         # Isolate the planet parameters
         planet_params = np.array(p[:self.i_sep])
-        self.radvel_model = Planet_Model(planet_params, data, num_planets)
+        self.radvel_model = Planet_Model(planet_params, data, num_planets, n_planet_params=n_planet_params)
 
         # Dictionaries to hold GP parameters and models for each instrument
         self.gp_params = {}
@@ -1255,7 +1338,7 @@ class Planet_GP_Model:
     
 ########################## Plotting functions ######################################
 
-def plot_lombscargle_periodograms(t_rv_dict, y_rv_dict, yerr_rv_dict, target_fap=0.01, max_frequency=1.0, combined=False):
+def plot_lombscargle_periodograms(t_rv_dict, y_rv_dict, yerr_rv_dict, target_fap=0.01, max_frequency=1.0, combined=False, file_path = None):
     """
     Plots Lomb-Scargle periodograms along with the window functions for multiple instruments.
     
@@ -1328,4 +1411,6 @@ def plot_lombscargle_periodograms(t_rv_dict, y_rv_dict, yerr_rv_dict, target_fap
     plt.xscale('log')
     plt.xlim(0, max(period_combined) if combined else max(period))
     plt.grid(True)
+    if file_path is not None:
+        plt.savefig(file_path)
     plt.show()
