@@ -14,18 +14,13 @@ tar -xvf filename.tar.gz
 ```
 mv */*.fits .
 ```
-5. Comeback in the `/science` directory with `cd ..`
-6. Your data will be in directories labeled with the data of each observation. You want to remove all files from these directories so that they are all located directly in the parent directory of the object. 
-```
-mv */*.fits .
-```
-7. It is possible that the spectra's file names contain `_A` or `_B`. This denotes the fibers going from the telescope to the detectors. You'll want to only use the data from fiber A. 
+5. It is possible that the spectra's file names contain `_A` or `_B`. This denotes the fibers going from the telescope to the detectors. You'll want to only use the data from fiber A. 
 ```
 rm *_B*.fits
 ``` 
-7. The spectra are now ready to be reduces into RV measurements using LBL. Go check the `wrap_{instrument}.py` file and make sure all the info is correct (object name, run params, etc.). Ask Pierrot, Étienne, Neil or Charles for help on how to construct a good wrap file if you are confused.
-8. Run the `wrap_{instrument}.py` in a terminal to run lbl on the data. If the reduction takes a long time and you need to close your terminal, use a screen so that LBL carries on even with your computer closed. (See https://linuxize.com/post/how-to-use-linux-screen/ for a tutorial on screens)
-9. Once the reduction is over the results should be in the form of a `.rdb` file in the `/lblrdb` directory. The file containing `lbl2` contain per-night bins of the data.  
+6. The spectra are now ready to be reduces into RV measurements using LBL. Go check the `wrap_{instrument}.py` file and make sure all the info is correct (object name, run params, etc.). Ask Pierrot, Étienne, Neil or Charles for help on how to construct a good wrap file if you are confused.
+7. Run the `wrap_{instrument}.py` in a terminal to run lbl on the data. If the reduction takes a long time and you need to close your terminal, use a screen so that LBL carries on even with your computer closed. (See https://linuxize.com/post/how-to-use-linux-screen/ for a tutorial on screens)
+8. Once the reduction is over the results should be in the form of a `.rdb` file in the `/lblrdb` directory. The file containing `lbl2` contain per-night bins of the data.  
 
 ### Running RV analysis
 1. Copy the `/template_star` directory in the `CRAPresults` directory and rename it the name of your star. 
@@ -43,9 +38,7 @@ lbl{bin_label}_{instrument}_{star_name}_{ref_star}{pca_label}
 ```
 {model_to_run}/{shared_params}/{nplanets}/{fit_ecc}/{sampler}/
 ```
-- `model_to_run`: - `keplerian+GP`: Family of models containing a keplerian components (planets) AND a GP   component (stellar activity)
-                  - `GP_only`: Family of models only fitting a GP. This is to see if the "no planets" scenario is plausible. 
-                  - `keplerian_only`: Family of models only fitting planets. Useful for stars with very little to no stellar activity. 
+- `model_to_run`: `keplerian+GP`: Family of models containing a keplerian components (planets) AND a GP   component (stellar activity). `GP_only`: Family of models only fitting a GP. This is to see if the "no planets" scenario is plausible. `keplerian_only`: Family of models only fitting planets. Useful for stars with very little to no stellar activity. 
 
 - `shared_params`: Specifies which GP parameters are shared between instruments. For example, the rotation period of the star is contained in parameter number 5 and it may be justified to share it between instruments since it is a physical quantity. Here is the chart to know which digit is connected to which GP parameter: 
     0. `mu` (offset)
@@ -66,7 +59,7 @@ lbl{bin_label}_{instrument}_{star_name}_{ref_star}{pca_label}
 - `GP_only.ipynb`: Only fits a GP model on the RV data. 
 - `keplerian_only.ipynb`: Only fits planet models on the RV data. 
 
-*Note: The `CRAPrunner_(...).py` files can be used to lauch many models at the same time, but they can take a long time depending on your needs.*
+*Note: The `CRAPrunner_(...).py` files can be used to launch many models at the same time, but they can take a long time depending on your needs.*
 
 *Main used packages*: 
 - RadVel (https://radvel.readthedocs.io/en/latest/)
