@@ -285,9 +285,9 @@ def gp_log_prior(p: np.ndarray, priors) -> float:
     elif priors['noise']['distribution'] == 'loguniform':
         log_prob += jeffreys_logp(p[1], np.log(priors['noise']['min']**2), np.log(priors['noise']['max']**2))
     elif priors['noise']['distribution'] == 'Normal':
-        log_prob += gaussian_logp(p[1], np.log(priors['noise']['mean']**2), np.log(priors['noise']['std']**2))
+        log_prob += gaussian_logp(p[1], np.log(priors['noise']['mean']**2), (2/priors['noise']['mean'])*priors['noise']['std'])
     elif priors['noise']['distribution'] == 'TruncatedNormal':
-        log_prob += truncated_normal_logp(p[1], np.log(priors['noise']['mean']**2), np.log(priors['noise']['std']**2), np.log(priors['noise']['min']**2), np.log(priors['noise']['max']**2))
+        log_prob += truncated_normal_logp(p[1], np.log(priors['noise']['mean']**2), (2/priors['noise']['mean'])*priors['noise']['std'], np.log(priors['noise']['min']**2), np.log(priors['noise']['max']**2))
     else:
         raise ValueError('Distribution not recognized for white noise')
     #print(log_prob)
@@ -298,22 +298,23 @@ def gp_log_prior(p: np.ndarray, priors) -> float:
     elif priors['GP_sigma']['distribution'] == 'loguniform':
         log_prob += jeffreys_logp(p[2], np.log(priors['GP_sigma']['min']**2), np.log(priors['GP_sigma']['max']**2))
     elif priors['GP_sigma']['distribution'] == 'Normal':
-        log_prob += gaussian_logp(p[2], np.log(priors['GP_sigma']['mean']**2), np.log(priors['GP_sigma']['std']**2))
+        log_prob += gaussian_logp(p[2], np.log(priors['GP_sigma']['mean']**2), (2/priors['GP_sigma']['mean'])*priors['GP_sigma']['std'])
     elif priors['GP_sigma']['distribution'] == 'TruncatedNormal':
-        log_prob += truncated_normal_logp(p[2], np.log(priors['GP_sigma']['mean']**2), np.log(priors['GP_sigma']['std']**2), np.log(priors['GP_sigma']['min']**2), np.log(priors['GP_sigma']['max']**2))
+        log_prob += truncated_normal_logp(p[2], np.log(priors['GP_sigma']['mean']**2), (2/priors['GP_sigma']['mean'])*priors['GP_sigma']['std'], np.log(priors['GP_sigma']['min']**2), np.log(priors['GP_sigma']['max']**2))
     else: 
         raise ValueError('Distribution not recognized for amplitude')
     #print(log_prob)
     
     # Log metric (lambda**2): Uniform
+    #print(p[3])
     if priors['GP_length']['distribution'] == 'Uniform':
         log_prob += uniform_logp(p[3], np.log(priors['GP_length']['min']**2), np.log(priors['GP_length']['max']**2))
     elif priors['GP_length']['distribution'] == 'loguniform':
         log_prob += jeffreys_logp(p[3], np.log(priors['GP_length']['min']**2), np.log(priors['GP_length']['max']**2))
     elif priors['GP_length']['distribution'] == 'Normal':
-        log_prob += gaussian_logp(p[3], np.log(priors['GP_length']['mean']**2), np.log(priors['GP_length']['std']**2))
+        log_prob += gaussian_logp(p[3], np.log(priors['GP_length']['mean']**2), (2/priors['GP_length']['mean'])*priors['GP_length']['std'])
     elif priors['GP_length']['distribution'] == 'TruncatedNormal':
-        log_prob += truncated_normal_logp(p[3], np.log(priors['GP_length']['mean']**2), np.log(priors['GP_length']['std']**2), np.log(priors['GP_length']['min']**2), np.log(priors['GP_length']['max']**2))
+        log_prob += truncated_normal_logp(p[3], np.log(priors['GP_length']['mean']**2), (2/priors['GP_length']['mean'])*priors['GP_length']['std'], np.log(priors['GP_length']['min']**2), np.log(priors['GP_length']['max']**2))
     else:
         raise ValueError('Distribution not recognized for length scale')
     #print(log_prob)
@@ -337,9 +338,9 @@ def gp_log_prior(p: np.ndarray, priors) -> float:
     elif priors['GP_Prot']['distribution'] == 'loguniform':
         log_prob += jeffreys_logp(p[5], np.log(priors['GP_Prot']['min']), np.log(priors['GP_Prot']['max']))
     elif priors['GP_Prot']['distribution'] == 'Normal':
-        log_prob += gaussian_logp(p[5], np.log(priors['GP_Prot']['mean']), np.log(priors['GP_Prot']['std']))
+        log_prob += gaussian_logp(p[5], np.log(priors['GP_Prot']['mean']), (1/priors['GP_Prot']['mean'])*priors['GP_Prot']['std'])
     elif priors['GP_Prot']['distribution'] == 'TruncatedNormal':
-        log_prob += truncated_normal_logp(p[5], np.log(priors['GP_Prot']['mean']), np.log(priors['GP_Prot']['std']), np.log(priors['GP_Prot']['min']), np.log(priors['GP_Prot']['max']))
+        log_prob += truncated_normal_logp(p[5], np.log(priors['GP_Prot']['mean']), (1/priors['GP_Prot']['mean'])*priors['GP_Prot']['std'], np.log(priors['GP_Prot']['min']), np.log(priors['GP_Prot']['max']))
     else:
         raise ValueError('Distribution not recognized for log period')
     #print(log_prob)

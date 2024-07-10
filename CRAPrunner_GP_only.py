@@ -152,7 +152,7 @@ for combo in combinations:
             for idx, param_name in enumerate(prior_params_names):
                 if param_name == 'GP_length':
                     priors[instrument][param_name] = {
-                        'guess': float(np.median(np.exp(act_samples_dict[instrument][idx]))),
+                        'guess': float(np.median(np.sqrt(np.exp(act_samples_dict[instrument][idx])))),
                         'distribution': 'TruncatedNormal',
                         'mean': float(np.median(np.sqrt(np.exp(act_samples_dict[instrument][idx])))),
                         'std': float(np.std(np.sqrt(np.exp(act_samples_dict[instrument][idx])))),
@@ -161,7 +161,7 @@ for combo in combinations:
                     }
                 elif param_name == 'GP_gamma':
                     priors[instrument][param_name] = {
-                        'guess': float(np.median(np.exp(act_samples_dict[instrument][idx]))),
+                        'guess': float(np.median(act_samples_dict[instrument][idx])),
                         'distribution': 'TruncatedNormal',
                         'mean': float(np.median(act_samples_dict[instrument][idx])),
                         'std': float(np.std(act_samples_dict[instrument][idx])), 

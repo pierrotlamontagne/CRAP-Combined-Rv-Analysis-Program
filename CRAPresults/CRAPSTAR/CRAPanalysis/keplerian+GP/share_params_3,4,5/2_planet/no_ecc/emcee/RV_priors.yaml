@@ -8,14 +8,14 @@ AstroWiz:
     std: 1.2958443099607129
   GP_gamma:
     distribution: TruncatedNormal
-    guess: 2.648084895337381
+    guess: 0.9738366977335724
     max: 10
     mean: 0.9738366977335724
     min: 0.1
     std: 0.353212153148806
   GP_length:
     distribution: TruncatedNormal
-    guess: 29693.49584157051
+    guess: 172.3180078853354
     max: 1000.0
     mean: 172.3180078853354
     min: 100.0
@@ -114,14 +114,14 @@ SpaceMuncher:
     std: 1.2958443099607129
   GP_gamma:
     distribution: TruncatedNormal
-    guess: 2.648084895337381
+    guess: 0.9738366977335724
     max: 10
     mean: 0.9738366977335724
     min: 0.1
     std: 0.353212153148806
   GP_length:
     distribution: TruncatedNormal
-    guess: 29693.49584157051
+    guess: 172.3180078853354
     max: 1000.0
     mean: 172.3180078853354
     min: 100.0
@@ -220,14 +220,14 @@ StarGazer:
     std: 1.2958443099607129
   GP_gamma:
     distribution: TruncatedNormal
-    guess: 2.648084895337381
+    guess: 0.9738366977335724
     max: 10
     mean: 0.9738366977335724
     min: 0.1
     std: 0.353212153148806
   GP_length:
     distribution: TruncatedNormal
-    guess: 29693.49584157051
+    guess: 172.3180078853354
     max: 1000.0
     mean: 172.3180078853354
     min: 100.0

@@ -37,23 +37,24 @@ crap_dir = ["CRAPanalysis"]
 model_to_run = ['keplerian+GP']
 
 # List of shared parameters to run
-shared_params_list = ["share_params_3", "share_params_4","share_params_5", 
-                 "share_params_3,4", "share_params_3,5","share_params_4,5",  "share_params_3,4,5"]
+#shared_params_list = ["share_params_3", "share_params_4","share_params_5", 
+                 #"share_params_3,4", "share_params_3,5","share_params_4,5",  "share_params_3,4,5"]
+shared_params_list = ['share_params_3,4,5']
 
 # List of sampler
-sampler_list = ['emcee', 'dynesty']
+sampler_list = ['emcee']
 
 # List of numbers of planets to test
-nplanets_list = ['1_planet', '2_planet', '3_planet']
+nplanets_list = ['1_planet']
 
 # Fit eccentricity or not
-fit_ecc_list = ['no_ecc', 'fit_ecc']
+fit_ecc_list = ['no_ecc']
 
 # Create combinations of all the run parameters
 combinations = product(parent_dir, stars, crap_dir, model_to_run, shared_params_list, nplanets_list, fit_ecc_list, sampler_list)
 
 # How many runs to skip
-skip = 1
+skip = 0
 
 # Counts the runs
 counter = 0
@@ -116,7 +117,7 @@ for combo in combinations:
     data.sampler = combo[7]
     
     # Always run the RV analysis
-    data.run_RV = True  # TODO: Can change to only recreate the graphs
+    data.run_RV = True # TODO: Can change to only recreate the graphs
     
     # Define number of GP params
     n_gp_params = 6
@@ -190,7 +191,7 @@ for combo in combinations:
             for idx, param_name in enumerate(prior_params_names):
                 if param_name == 'GP_length':
                     priors[instrument][param_name] = {
-                        'guess': float(np.median(np.exp(act_samples_dict[instrument][idx]))),
+                        'guess': float(np.median(np.sqrt(np.exp(act_samples_dict[instrument][idx])))),
                         'distribution': 'TruncatedNormal',
                         'mean': float(np.median(np.sqrt(np.exp(act_samples_dict[instrument][idx])))),
                         'std': float(np.std(np.sqrt(np.exp(act_samples_dict[instrument][idx])))),
@@ -199,7 +200,7 @@ for combo in combinations:
                     }
                 elif param_name == 'GP_gamma':
                     priors[instrument][param_name] = {
-                        'guess': float(np.median(np.exp(act_samples_dict[instrument][idx]))),
+                        'guess': float(np.median(act_samples_dict[instrument][idx])),
                         'distribution': 'TruncatedNormal',
                         'mean': float(np.median(act_samples_dict[instrument][idx])),
                         'std': float(np.std(act_samples_dict[instrument][idx])), 
@@ -295,6 +296,7 @@ for combo in combinations:
         maxiter = 5000 * ndim  # Maximum number of iterations
         num_warmup = 100 * ndim
 
+
         if data.run_RV: 
             sampler = dynesty.NestedSampler(rv.dynesty_log_likelihood, rv.dynesty_prior_transform, ndim, 
                                             nlive=n_live_points, 
@@ -302,55 +304,60 @@ for combo in combinations:
                                             ptform_args=(priors, model, i_shared, data, data.nplanets, data.n_planet_params))
 
             # Run the Nested Sampler
-            start_time = time.time()
             sampler.run_nested(dlogz=dlogz, maxiter=maxiter)
             results = sampler.results
-            
             # Save the results to a .pkl file
             with open(working_path + 'dynesty_results.pkl', 'wb') as f:
                 pickle.dump(results, f)
-            
-            all_log_prob_samples = results.logl
-            
-            # Smooth the log-probability curve using a moving average
-            window_size = 50
-            smoothed_log_prob = np.convolve(all_log_prob_samples, np.ones(window_size)/window_size, mode='valid')
-
-            # Calculate the derivative of the smoothed log-probability
-            derivative_log_prob = np.diff(smoothed_log_prob)
-
-            # Identify the point where the derivative falls below a threshold and stays there
-            threshold = 0.01
-            burn_in = next((i for i, v in enumerate(derivative_log_prob) if v < threshold), 0) + window_size
-
-            logger.info(f"Determined burn-in period: {burn_in}")
-
-            # Gather the results: samples and log_prob of all samples
-            samples = np.copy(results.samples[burn_in:])  # Array of shape (nsamples, ndim)
-            np.save(working_path + 'post_samples.npy', samples)
-            
-            log_prob = np.copy(results.logl[burn_in:])  # Log-likelihood values for each sample
-            np.save(working_path + 'log_prob_samples.npy', log_prob)
-
-
-            # Extract the evidence (logZ) and its uncertainty (logZerr)
-            log_evidence = results.logz[-1]
-            log_evidence_err = results.logzerr[-1]
-            evidence_filename = working_path + f'log_evidence.txt'
-            np.savetxt(evidence_filename, np.array([[log_evidence, log_evidence_err]]), header="log_evidence log_evidence_err", fmt='%.6f')
+                
             elapsed_time = time.time() - start_time
             logger.info(f'Nested sampling completed in {elapsed_time:.2f} seconds.')
-        
         else: 
             logger.info('Loading previous Nested Sampling fit for the planet + GP model...')
+            
+            with open(working_path + 'dynesty_results.pkl', 'rb') as f:
+                results = pickle.load(f)
+            
+        all_log_prob_samples = results.logl
+        
+        # Smooth the log-probability curve using a moving average
+        window_size = 50
+        smoothed_log_prob = np.convolve(all_log_prob_samples, np.ones(window_size)/window_size, mode='valid')
+
+        # Reverse the smoothed log-probability and calculate the derivative
+        smoothed_log_prob_reversed = smoothed_log_prob[::-1]
+        derivative_log_prob_reversed = np.abs(np.diff(smoothed_log_prob_reversed))
+
+        # Identify the point where the derivative falls below a threshold and stays there
+        threshold = 0.03
+        try:
+            burn_in_reversed = next((i for i, v in enumerate(derivative_log_prob_reversed) if v > threshold), 0)
+        except StopIteration:
+            burn_in_reversed = 0
+        
+        burn_in = len(smoothed_log_prob_reversed) - burn_in_reversed - 1
+
+        logger.info(f"Determined burn-in period: {burn_in}")
+
+        # Gather the results: samples and log_prob of all samples
+        samples = np.copy(results.samples[burn_in:])  # Array of shape (nsamples, ndim)
+        np.save(working_path + 'post_samples.npy', samples)
+        
+        log_prob = np.copy(results.logl[burn_in:])  # Log-likelihood values for each sample
+        np.save(working_path + 'log_prob_samples.npy', log_prob)
+
+
+        # Extract the evidence (logZ) and its uncertainty (logZerr)
+        log_evidence = results.logz[-1]
+        log_evidence_err = results.logzerr[-1]
+        evidence_filename = working_path + f'log_evidence.txt'
+        np.savetxt(evidence_filename, np.array([[log_evidence, log_evidence_err]]), header="log_evidence log_evidence_err", fmt='%.6f')
+        
             
     post_samples = np.load(working_path + 'post_samples.npy')
     if data.sampler == 'emcee': 
         post_samples_walkers = np.load(working_path + 'post_samples_walkers.npy')
     log_prob_samples = np.load(working_path + 'log_prob_samples.npy')
-    if data.sampler == 'dynesty': 
-        with open(working_path + 'dynesty_results.pkl', 'rb') as f:
-            results = pickle.load(f)
     
     if data.sampler == 'emcee':  
         logger.info('Plotting traceplot...')
