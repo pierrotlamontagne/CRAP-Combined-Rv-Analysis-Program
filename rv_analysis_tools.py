@@ -92,7 +92,7 @@ class DataLoader:
     A class to load and preprocess radial velocity (RV) and stellar activity data for multiple instruments.
     """
 
-    def __init__(self, data, raw=False):
+    def __init__(self, data, raw=False, no_FFp=False):
         self.data = data
         self.star_info = self.data.get('star', [{}])  # Default to a list with one empty dictionary
         self.star = self.star_info['name']  # Name of the star
@@ -104,20 +104,22 @@ class DataLoader:
         self.fit_ecc = self.data['fit_ecc']  # Whether to fit eccentricity or not
         self.use_indicator = self.data['use_indicator']  # Whether to use activity indicators
         self.version = 'DRS-3-0-0'  # HARPS pipeline version
-        self.rjd_rjd_off = 2400000.5  # Offset to convert RJD to Julian Date
+        self.rjd_bjd_off = 2400000.5  # Offset to convert RJD to Julian Date
 
         self.tbl = {}  # Dictionary to hold data tables for each instrument
         self.ref_star = {}  # Reference star for each instrument
         self.t_rv, self.y_rv, self.yerr_rv = {}, {}, {}  # RV data for each instrument
         self.i_good_times = {}  # Indices of good observation times for each instrument
         self.d2v, self.sd2v, self.Dtemp, self.sDtemp = {}, {}, {}, {}  # Stellar activity indicators for each instrument
+        self.contrast, self.sig_contrast = {}, {}
+        self.fwhm, self.sig_fwhm = {}, {}
         self.Dtemp_suffix = {}  # Suffix for temperature difference indicator columns
         self.raw_file_path = {}  # Paths to the raw data files for each instrument
         self.file_path = {}  # Paths to the preprocessed data files for each instrument
         self.med_rv_nirps = {}  # Median RV values for each instrument
         self.t_mod = {}  # Time data for model predictions
-        self.no_Dtemp = self.data['no_Dtemp']  # Whether to exclude Dtemp indicator
         self.raw = raw  # Whether to load raw data or preprocessed data
+        self.no_FFP = no_FFp # Whether to use the FFp corrected data or not
         
         # What are we running?
         self.run_activity = self.data['run_activity']  # Whether to run activity analysis
@@ -141,36 +143,48 @@ class DataLoader:
             self.Dtemp_suffix[instrument] = self.instruments_info[instrument].get('dtemp_suffix', '')  # Suffix for temperature difference indicator columns
             bin_label = self.instruments_info[instrument].get('bin_label', '')  # Bin label for the data
             pca_label = self.instruments_info[instrument].get('pca_label', '')  # PCA label for the data
+            FFp_label = self.instruments_info[instrument].get('FFp_label', '')  # PCA label for the data
             self.t_min = radvel.utils.date2jd(date(*self.instruments_info[instrument].get('start_time', '')))  # Start time for the data
             self.t_max = radvel.utils.date2jd(date(*self.instruments_info[instrument].get('end_time', '')))  # End time for the data
-
             # Paths to data files
-            self.raw_file_path[instrument] = f'CRAPresults/{self.star}/data/lbl{bin_label}_{instrument}_{self.star}_{self.ref_star[instrument]}{pca_label}.rdb'
-            self.file_path[instrument] = f'CRAPresults/{self.star}/data/lbl{bin_label}_{instrument}_{self.star}_{self.ref_star[instrument]}{pca_label}_preprocessed.rdb'
+            self.file_path[instrument] = f'CRAPresults/{self.star}/data/lbl{bin_label}_{instrument}_{self.star}_{self.ref_star[instrument]}{pca_label}{FFp_label}_preprocessed.rdb'
             
             # Read data file
             if self.raw:
-                self.tbl[instrument] = Table.read(self.raw_file_path[instrument], format='rdb')  # Read raw data
-                self.tbl[instrument]['rjd'] += self.rjd_rjd_off  # Convert RJD to Julian Date
+                self.file_path[instrument] = f'CRAPresults/{self.star}/data/lbl{bin_label}_{instrument}_{self.star}_{self.ref_star[instrument]}{pca_label}.rdb'
+                self.tbl[instrument] = Table.read(self.file_path[instrument], format='rdb')  # Read raw data
+                self.tbl[instrument]['rjd'] += self.rjd_bjd_off
+            elif self.no_FFP:
+                self.file_path[instrument] = f'CRAPresults/{self.star}/data/lbl{bin_label}_{instrument}_{self.star}_{self.ref_star[instrument]}{pca_label}_preprocessed.rdb'
+                self.tbl[instrument] = Table.read(self.file_path[instrument], format='rdb')  # Read raw data
             else:
-                self.tbl[instrument] = Table.read(self.file_path[instrument], format='rdb')  # Read preprocessed data
-            self.tbl[instrument]['vrad'] -= np.median(self.tbl[instrument]['vrad'])  # Subtract median RV value
-
+                self.file_path[instrument] = f'CRAPresults/{self.star}/data/lbl{bin_label}_{instrument}_{self.star}_{self.ref_star[instrument]}{pca_label}{FFp_label}_preprocessed.rdb'
+                self.tbl[instrument] = Table.read(self.file_path[instrument], format='rdb')  # Read raw data
+            
             # Select desired times
             self.i_good_times[instrument] = (self.tbl[instrument]['rjd'] > self.t_min) & (self.tbl[instrument]['rjd'] < self.t_max)  # Good observation times
             self.tbl[instrument] = self.tbl[instrument][self.i_good_times[instrument]]  # Filter data by good times
             
             # RV data
             self.t_rv[instrument], self.y_rv[instrument], self.yerr_rv[instrument] = self.tbl[instrument]['rjd'], self.tbl[instrument]['vrad'], self.tbl[instrument]['svrad']
-            
             # Stellar activity indicators
-            self.d2v[instrument], self.sd2v[instrument] = self.tbl[instrument]['d2v'] / np.max(self.tbl[instrument]['d2v']), np.abs(self.tbl[instrument]['sd2v'] / np.max(self.tbl[instrument]['d2v']))
-            self.d2v[instrument] -= np.median(self.d2v[instrument])  # Subtract median activity indicator
+            # Second derivative
+            self.d2v[instrument], self.sd2v[instrument] = self.tbl[instrument]['d2v'], self.tbl[instrument]['sd2v']
             
+            # Contrast
+            try:
+                self.contrast[instrument], self.sig_contrast[instrument] = self.tbl[instrument]['contrast'], self.tbl[instrument]['sig_contrast']
+            except: 
+                print(f'No contrast data for {instrument}')
+            try:
+                self.fwhm[instrument], self.sig_fwhm[instrument] = self.tbl[instrument]['fwhm'], self.tbl[instrument]['sig_fwhm']
+            except:
+                print(f'No FWHM data for {instrument}')
             # Temperature difference indicators
-            if not self.no_Dtemp:
+            try: 
                 self.Dtemp[instrument], self.sDtemp[instrument] = self.tbl[instrument]['DTEMP' + self.Dtemp_suffix[instrument]], self.tbl[instrument]['sDTEMP' + self.Dtemp_suffix[instrument]]
-                self.Dtemp[instrument] -= np.median(self.Dtemp[instrument])  # Subtract median temperature difference indicator
+            except: 
+                print(f'No DTEMP{self.Dtemp_suffix[instrument]} data for {instrument}')
 
             # Median of the RVs
             self.med_rv_nirps[instrument] = np.rint(np.median(self.tbl[instrument]['vrad'].data))  # Median RV value
@@ -179,14 +193,45 @@ class DataLoader:
             self.t_mod[instrument] = np.linspace(np.min(self.t_rv[instrument]), np.max(self.t_rv[instrument]), 1000)  # Model time data
 
 
-# Function to deal with directories
+# Functions for photometric data
+def bin_tess_data(times, flux, flux_error, num_points):
+    # Calculate the number of data points in each bin
+    num_bins = len(flux) // num_points
+    
+    # Calculate the remainder data points
+    remainder = len(flux) % num_points
+    
+    # Create empty arrays to store the binned times, flux, and flux error
+    binned_times = np.zeros(num_points)
+    binned_flux = np.zeros(num_points)
+    binned_flux_error = np.zeros(num_points)
+    
+    # Bin the data
+    for i in range(num_points):
+        start = i * num_bins + min(i, remainder)
+        end = start + num_bins + (i < remainder)
+        binned_times[i] = np.mean(times[start:end])
+        binned_flux[i] = np.mean(flux[start:end])
+        binned_flux_error[i] = np.sqrt(np.mean(flux_error[start:end]**2))
+    
+    return binned_times, binned_flux, binned_flux_error
+
+def bkjd_to_rjd(bkjd):
+    return bkjd + 2457000.0
+
+
+# Functions to deal with directories
 # From strings to yaml inputs
 def transform_shared_params(shared_params_str):
     """
     Transform a string like 'share_params_3,4,5' into a list [3, 4, 5]
     """
-    params = shared_params_str.split('_')[2]
-    return [int(x) for x in params.split(',')]
+    try: 
+        params = shared_params_str.split('_')[2]
+        return [int(x) for x in params.split(',')]
+    except:
+        empty_list = [] 
+        return empty_list
 
 def transform_nplanets(nplanets_str):
     """
@@ -660,9 +705,9 @@ def dynesty_prior_transform(u, priors, model, i_shared, data, num_planets, n_pla
             dist = priors[instrument][param]['distribution']
             # Changing the priors to log space
             if param == 'noise' or param == 'GP_sigma' or param == 'GP_length': 
-                priors[instrument][param]['min'], priors[instrument][param]['max'], priors[instrument][param]['mean'], priors[instrument][param]['std'] = np.log(priors[instrument][param]['min']**2), np.log(priors[instrument][param]['max']**2), np.log(priors[instrument][param]['mean']**2), np.log(priors[instrument][param]['std']**2)
+                priors[instrument][param]['min'], priors[instrument][param]['max'], priors[instrument][param]['mean'], priors[instrument][param]['std'] = np.log(priors[instrument][param]['min']**2), np.log(priors[instrument][param]['max']**2), np.log(priors[instrument][param]['mean']**2), (2/priors[instrument][param]['mean'])*priors[instrument][param]['std']
             if param == 'GP_Prot': 
-                priors[instrument][param]['min'], priors[instrument][param]['max'], priors[instrument][param]['mean'], priors[instrument][param]['std'] = np.log(priors[instrument][param]['min']), np.log(priors[instrument][param]['max']), np.log(priors[instrument][param]['mean']), np.log(priors[instrument][param]['std'])
+                priors[instrument][param]['min'], priors[instrument][param]['max'], priors[instrument][param]['mean'], priors[instrument][param]['std'] = np.log(priors[instrument][param]['min']), np.log(priors[instrument][param]['max']), np.log(priors[instrument][param]['mean']), (1/priors[instrument][param]['mean'])*priors[instrument][param]['std']
             
             # Transform the parameters
             if dist == 'Uniform':
@@ -767,9 +812,9 @@ def dynesty_prior_transform_gp_only(u, priors, model, data, i_shared):
             dist = priors[instrument][param]['distribution']
             # Changing the priors to log space
             if param == 'noise' or param == 'GP_sigma' or param == 'GP_length': 
-                priors[instrument][param]['min'], priors[instrument][param]['max'], priors[instrument][param]['mean'], priors[instrument][param]['std'] = np.log(priors[instrument][param]['min']**2), np.log(priors[instrument][param]['max']**2), np.log(priors[instrument][param]['mean']**2), np.log(priors[instrument][param]['std']**2)
+                priors[instrument][param]['min'], priors[instrument][param]['max'], priors[instrument][param]['mean'], priors[instrument][param]['std'] = np.log(priors[instrument][param]['min']**2), np.log(priors[instrument][param]['max']**2), np.log(priors[instrument][param]['mean']**2), (2/priors[instrument][param]['mean'])*priors[instrument][param]['std']
             if param == 'GP_Prot': 
-                priors[instrument][param]['min'], priors[instrument][param]['max'], priors[instrument][param]['mean'], priors[instrument][param]['std'] = np.log(priors[instrument][param]['min']), np.log(priors[instrument][param]['max']), np.log(priors[instrument][param]['mean']), np.log(priors[instrument][param]['std'])
+                priors[instrument][param]['min'], priors[instrument][param]['max'], priors[instrument][param]['mean'], priors[instrument][param]['std'] = np.log(priors[instrument][param]['min']), np.log(priors[instrument][param]['max']), np.log(priors[instrument][param]['mean']), (1/priors[instrument][param]['mean'])*priors[instrument][param]['std']
             
             # Transform the parameters
             if dist == 'Uniform':

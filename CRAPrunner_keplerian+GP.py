@@ -17,6 +17,7 @@ import dynesty
 import radvel
 import pickle
 from itertools import product
+import matplotlib.dates as mdates
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -28,7 +29,7 @@ dir_template = "{parent_dir}/{star}/{crap_dir}/{model_to_run}/{shared_param}/{np
 parent_dir = ['CRAPresults']
 
 # Stars to run CRAP on 
-stars = ['PROXIMA']
+stars = ['SMETHELLS_20']
 
 # CRAPanalysis directory
 crap_dir = ["CRAPanalysis"]
@@ -45,16 +46,16 @@ shared_params_list = ['share_params_3,4,5']
 sampler_list = ['emcee']
 
 # List of numbers of planets to test
-nplanets_list = ['1_planet']
+nplanets_list = ['1_planet', '2_planet']
 
 # Fit eccentricity or not
-fit_ecc_list = ['no_ecc']
+fit_ecc_list = ['no_ecc', 'fit_ecc']
 
 # Create combinations of all the run parameters
 combinations = product(parent_dir, stars, crap_dir, model_to_run, shared_params_list, nplanets_list, fit_ecc_list, sampler_list)
 
 # How many runs to skip
-skip = 0
+skip = 1
 
 # Counts the runs
 counter = 0
@@ -140,8 +141,10 @@ for combo in combinations:
     # Plot the periodogram of the RV data
     rv.plot_lombscargle_periodograms(data.t_rv, data.y_rv, data.yerr_rv, combined=True, file_path=working_path+'RV_periodogram.png')
     
+    activity_path = f'CRAPresults/{star}/CRAPanalysis/activity/{combo[4]}/'
+    
     if data.use_indicator:
-        act_post_samples_walkers = np.load(f'CRAPresults/{star}/CRAPanalysis/activity/act_post_samples.npy')
+        act_post_samples_walkers = np.load(activity_path+'act_post_samples.npy')
         act_post_samples = act_post_samples_walkers.reshape(-1, act_post_samples_walkers.shape[2])
 
         # For first guess
@@ -245,8 +248,8 @@ for combo in combinations:
     if data.sampler == "emcee":
         # MCMC fit of the GP hyperparameters 
         nwalkers, ndim = 3*len(comb_p0), len(comb_p0)
-        num_warmup = 50 * ndim
-        num_post_samples = 500 * ndim
+        num_warmup = 100 * ndim
+        num_post_samples = 1000 * ndim
 
         sampler = emcee.EnsembleSampler(
             nwalkers,
@@ -304,7 +307,7 @@ for combo in combinations:
                                             ptform_args=(priors, model, i_shared, data, data.nplanets, data.n_planet_params))
 
             # Run the Nested Sampler
-            sampler.run_nested(dlogz=dlogz, maxiter=maxiter)
+            sampler.run_nested(maxiter=maxiter)
             results = sampler.results
             # Save the results to a .pkl file
             with open(working_path + 'dynesty_results.pkl', 'wb') as f:
@@ -478,11 +481,13 @@ for combo in combinations:
     logger.info('Plotting the best-fit model and residuals...')
     start_time = time.time()
 
+    print('Plotting the best-fit model and residuals')
+
     # Plot the planets + GP model and the samples
     fig, axes = plt.subplots(5, 1, figsize=(20, 18), sharex=False)
-    rjd_off = 245000
+    rjd_off = 2400000.5
 
-    # Dictionaries to store the model predictions
+    # Dictionnaries to store the model predictions
     planet_mod_pred_on_data = {}
     planet_mod_pred_on_mod_times = {}
     gp_mod_pred_on_data = {}
@@ -493,6 +498,9 @@ for combo in combinations:
 
     # Planet residuals
     planet_res = {}
+
+    # Residuals
+    residuals = {}
 
     for instrument in data.instruments: 
         # Evaluate planets
@@ -505,26 +513,34 @@ for combo in combinations:
     for idx, instrument in enumerate(data.instruments):
         
         # Offset
-        rv_offset[instrument] = best_params[data.n_planet_params * data.nplanets + idx]
+        rv_offset[instrument] = best_params[data.n_planet_params*data.nplanets+idx]
         
         # Evaluate GP
         gp_mod_pred_on_data[instrument] = model.predict(planet_res, data.t_rv, return_components=True)[instrument]['GP']
         gp_mod_pred_on_mod_times[instrument] = model.predict(planet_res, data.t_mod, return_components=True)[instrument]['GP']
         
+        # Convert RJD to datetime
+        time_rv = [mdates.num2date(mdates.date2num(mdates.num2date(t - rjd_off + mdates.datestr2num('1858-11-17')))) for t in data.t_rv[instrument]]
+        time_mod = [mdates.num2date(mdates.date2num(mdates.num2date(t - rjd_off + mdates.datestr2num('1858-11-17')))) for t in data.t_mod[instrument]]
+        
         # Plot data with error bars
-        axes[0].errorbar(data.t_rv[instrument] - rjd_off, data.y_rv[instrument], yerr=noise_terms[instrument], fmt="o", ms=5, label=f'{instrument}', color=colors[idx])
-        axes[1].errorbar(data.t_rv[instrument] - rjd_off, data.y_rv[instrument] - planet_mod_pred_on_data[instrument], yerr=noise_terms[instrument], fmt="o", ms=5, label=f'{instrument}', color=colors[idx])
-        axes[2].errorbar(data.t_rv[instrument] - rjd_off, data.y_rv[instrument] - gp_mod_pred_on_data[instrument], yerr=noise_terms[instrument], fmt="o", ms=5, label=f'{instrument}', color=colors[idx])
+        axes[0].errorbar(time_rv, data.y_rv[instrument], yerr=noise_terms[instrument], fmt="o", ms=5, label=f'{instrument}', color=colors[idx])
+        axes[1].errorbar(time_rv, data.y_rv[instrument] - planet_mod_pred_on_data[instrument], yerr=noise_terms[instrument], fmt="o", ms=5, label=f'{instrument}', color=colors[idx])
+        axes[2].errorbar(time_rv, data.y_rv[instrument] - gp_mod_pred_on_data[instrument], yerr=noise_terms[instrument], fmt="o", ms=5, label=f'{instrument}', color=colors[idx])
         
         # Plot best likelihood
-        axes[2].plot(data.t_mod[instrument] - rjd_off, planet_mod_pred_on_mod_times[instrument], color=colors[idx], linewidth=1.5, alpha=0.5)  # Keplerian
-        axes[1].plot(data.t_mod[instrument] - rjd_off, gp_mod_pred_on_mod_times[instrument], color=colors[idx], linestyle='--', linewidth=1.5, alpha=0.5)  # GP
-        axes[0].plot(data.t_mod[instrument] - rjd_off, planet_mod_pred_on_mod_times[instrument] + gp_mod_pred_on_mod_times[instrument], color=colors[idx], linewidth=1.5, alpha=0.5)  # Full model
+        axes[2].plot(time_mod, planet_mod_pred_on_mod_times[instrument], color=colors[idx],
+                    linewidth=1.5, alpha=0.5)  # Keplerian
+        axes[1].plot(time_mod, gp_mod_pred_on_mod_times[instrument], color=colors[idx],
+                    linestyle='--', linewidth=1.5, alpha=0.5)  # GP
+        axes[0].plot(time_mod, planet_mod_pred_on_mod_times[instrument] + gp_mod_pred_on_mod_times[instrument],
+                    color=colors[idx], linewidth=1.5, alpha=0.5)  # Full model
         # Plot residuals
-        axes[3].errorbar(data.t_rv[instrument] - rjd_off, data.y_rv[instrument] - planet_mod_pred_on_data[instrument] - gp_mod_pred_on_data[instrument], yerr=noise_terms[instrument], fmt='o', color=colors[idx], label=f'{instrument} residuals')
+        residuals[instrument] = data.y_rv[instrument] - planet_mod_pred_on_data[instrument] - gp_mod_pred_on_data[instrument]
+        axes[3].errorbar(time_rv, residuals[instrument], yerr=noise_terms[instrument], fmt='o', color=colors[idx], label=f'{instrument} residuals')
         
         # Plot the periodogram of the residuals
-        ls = LombScargle(data.t_rv[instrument] - rjd_off, data.y_rv[instrument] - planet_mod_pred_on_data[instrument] - gp_mod_pred_on_data[instrument], dy=noise_terms[instrument])
+        ls = LombScargle(data.t_rv[instrument] - rjd_off, residuals[instrument], dy=noise_terms[instrument])
         target_fap = 0.01
         fap = ls.false_alarm_level(target_fap)
         freq, power = ls.autopower(maximum_frequency=1.0)
@@ -543,6 +559,11 @@ for combo in combinations:
     axes[2].set_title('Keplerian model (data - GP model)')
     axes[3].set_title('Residuals')
     axes[4].set_title('Periodograms of the residuals')
+
+    # Set date format for the x-axis
+    axes[4].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+
+
     axes[3].set_xlabel('Time [rjd]')
     axes[0].set_ylabel('RV [m/s]')
     axes[1].set_ylabel('RV [m/s]')
@@ -560,6 +581,9 @@ for combo in combinations:
     plt.suptitle(f'{data.nplanets} planets + GP model', fontsize=20)
     plt.savefig(working_path + f'best_fit.png')
     plt.show()
+
+    print('Done.')
+
 
     elapsed_time = time.time() - start_time
     logger.info(f'Best-fit model and residuals plotted in {elapsed_time:.2f} seconds.')
@@ -705,24 +729,30 @@ for combo in combinations:
     planets_info = data.star_info['planets']
     letters = list(data.star_info['planets'].keys())
 
+
     for p in range(data.nplanets):
         fig, axes = plt.subplots(1, data.n_planet_params, figsize=(20, 6))
         
         planet_number = p + 1
-        
         try:
-            # Literature values
+        # Litterature values
             per_lit = planets_info[letters[p]]['period']
+            per_err_lit = planets_info[letters[p]]['period_err']
             mass_lit = planets_info[letters[p]]['mass']
+            mass_err_lit = planets_info[letters[p]]['mass_err']
             ecc_lit = planets_info[letters[p]]['ecc']
             omega_lit = planets_info[letters[p]]['omega']
+            K_lit = planets_info[letters[p]]['K']
+            K_err_lit = planets_info[letters[p]]['K_err']
             
         except: 
             per_lit = 'None'
+            per_err_lit = 'None'
             mass_lit = 'None'
+            mass_err_lit = 'None'
             ecc_lit = 'None'
             omega_lit = 'None'
-        
+            k_lit = 'None'
         # Period
         P_samples = post_samples[:, planet_number * data.n_planet_params - data.n_planet_params]
         P_med = np.median(P_samples)
@@ -734,6 +764,7 @@ for combo in combinations:
         tc_med = np.median(tc_samples)
         tc_err = np.percentile(tc_samples, [16, 84])
         tc_med_str, tc_err_str = format_error(tc_med, np.mean(np.abs(tc_err - tc_med)))
+
 
         if data.n_planet_params == 5:
             # Eccentricity
@@ -748,16 +779,26 @@ for combo in combinations:
             w_err = np.percentile(w_samples, [16, 84])
             w_med_str, w_err_str = format_error(w_med, np.mean(np.abs(w_err - w_med)))
             
+        
             k_samples = post_samples[:, planet_number * data.n_planet_params - data.n_planet_params + 4]
         else:
             k_samples = post_samples[:, planet_number * data.n_planet_params - data.n_planet_params + 2]
         
+        k_med = np.median(k_samples)
+        k_err = np.percentile(k_samples, [16, 84])
+        k_med_str, k_err_str = format_error(k_med, np.mean(np.abs(k_err - k_med)))
+        
         # Mass    
-        M_star = np.random.normal(data.data['star']['M_star'], data.data['star']['M_star_err'], len(k_samples))
-        M_samples = radvel.utils.Msini(k_samples, P_samples, M_star, 0)  # Transform into mass 
-        M_med = np.median(M_samples)
-        M_err = np.percentile(M_samples, [16, 84])
-        M_med_str, M_err_str = format_error(M_med, np.mean(np.abs(M_err - M_med)))
+        try: 
+            M_star = np.random.normal(data.data['star']['M_star'], data.data['star']['M_star_err'], len(k_samples))
+            M_samples = radvel.utils.Msini(k_samples, P_samples, M_star, 0)  # Transform into mass 
+            M_med = np.median(M_samples)
+            M_err = np.percentile(M_samples, [16, 84])
+            M_med_str, M_err_str = format_error(M_med, np.mean(np.abs(M_err - M_med)))
+            measured_mass = True
+        except: 
+            measured_mass = False
+            print('Mass of star is not provided.')
         
         # Period histogram
         axes[0].hist(P_samples, bins=50, color='blue', alpha=0.5)
@@ -767,7 +808,8 @@ for combo in combinations:
         axes[0].axvline(P_err[0], color='green', linestyle='--', label='16th and 84th percentile')
         axes[0].axvline(P_err[1], color='green', linestyle='--')
         axes[0].set_title(f'P = {P_med_str} ± {P_err_str} days')
-        if per_lit != 'None': axes[0].axvline(per_lit, color='black', linestyle='--', label='Literature')
+        if per_lit != 'None': axes[0].axvline(per_lit, color='black', linestyle='--', label='Litterature')
+        if per_err_lit[0] != 'None':  axes[0].fill_betweenx([0, axes[0].get_ylim()[1]], per_lit - per_err_lit[0], per_lit + per_err_lit[1], color='black', alpha=0.2)
         
         # Time of conjunction histogram
         axes[1].hist(tc_samples, bins=50, color='blue', alpha=0.5)
@@ -778,15 +820,28 @@ for combo in combinations:
         axes[1].axvline(tc_err[1], color='green', linestyle='--')
         axes[1].set_title(f'tc = {tc_med_str} ± {tc_err_str} rjd')
 
-        # Mass histogram
-        axes[2].hist(M_samples, bins=50, color='blue', alpha=0.5)
-        axes[2].set_xlabel('Mass (M$_\oplus$)')
+        # Semi-amplitude histogram
+        axes[2].hist(k_samples, bins=50, color='blue', alpha=0.5)
+        axes[2].set_xlabel('Semi-amplitude (m/s)')
         axes[2].set_ylabel('Number of samples')
-        axes[2].axvline(M_med, color='red', linestyle='--', label='Median')
-        axes[2].axvline(M_err[0], color='green', linestyle='--', label='16th and 84th percentile')
-        axes[2].axvline(M_err[1], color='green', linestyle='--')
-        axes[2].set_title(f'M = {M_med_str} ± {M_err_str} M$_\oplus$')
-        if mass_lit != 'None': axes[2].axvline(mass_lit, color='black', linestyle='--', label='Literature')
+        axes[2].axvline(k_med, color='red', linestyle='--', label='Median')
+        axes[2].axvline(k_err[0], color='green', linestyle='--', label='16th and 84th percentile')
+        axes[2].axvline(k_err[1], color='green', linestyle='--')
+        axes[2].set_title(f'k = {k_med_str} ± {k_err_str} m/s')
+        if K_lit != 'None': axes[2].axvline(K_lit, color='black', linestyle='--', label='Litterature')
+        if K_err_lit[0] != 'None':  axes[2].fill_betweenx([0, axes[2].get_ylim()[1]], K_lit - K_err_lit[0], K_lit + K_err_lit[1], color='black', alpha=0.2)
+        
+        # # Mass histogram
+        # axes[2].hist(M_samples, bins=50, color='blue', alpha=0.5)
+        # axes[2].set_xlabel('Mass of the planet (M$_e$)')
+        # axes[2].set_ylabel('Number of samples')
+        # axes[2].axvline(M_med, color='red', linestyle='--', label='Median')
+        # axes[2].axvline(M_err[0], color='green', linestyle='--', label='16th and 84th percentile')
+        # axes[2].axvline(M_err[1], color='green', linestyle='--')
+        # axes[2].set_title(f'M = {M_med_str} ± {M_err_str} M_e')
+        # if mass_lit != 'None': axes[2].axvline(mass_lit, color='black', linestyle='--', label='Litterature')
+        # if mass_err_lit != 'None':  axes[2].fill_betweenx([0, axes[2].get_ylim()[1]], mass_lit - mass_err_lit[0], mass_lit + mass_err_lit[1], color='black', alpha=0.2)
+        
         
         axes[0].legend()
         axes[1].legend()
@@ -801,7 +856,7 @@ for combo in combinations:
             axes[3].axvline(e_med, color='red', linestyle='--', label='Median')
             axes[3].axvline(e_err[0], color='green', linestyle='--', label='16th and 84th percentile')
             axes[3].axvline(e_err[1], color='green', linestyle='--')
-            if ecc_lit != 'None': axes[3].axvline(ecc_lit, color='black', linestyle='--', label='Literature')
+            if ecc_lit != 'None': axes[3].axvline(ecc_lit, color='black', linestyle='--', label='Litterature')
             axes[3].legend()
             
             # Omega histogram
@@ -812,11 +867,14 @@ for combo in combinations:
             axes[4].axvline(w_med, color='red', linestyle='--', label='Median')
             axes[4].axvline(w_err[0], color='green', linestyle='--', label='16th and 84th percentile')
             axes[4].axvline(w_err[1], color='green', linestyle='--')
-            if omega_lit != 'None': axes[4].axvline(omega_lit, color='black', linestyle='--', label='Literature')
+            if omega_lit != 'None': axes[4].axvline(omega_lit, color='black', linestyle='--', label='Litterature')
             axes[4].legend()
             
         plt.tight_layout()
         plt.suptitle(f'Planet {planet_number}', fontsize=20, y=1.05)
         plt.savefig(working_path + f'planet_{planet_number}_histogram.png')
+
+
+
 
     logger.info('All done! Hope you are happy with your results.')

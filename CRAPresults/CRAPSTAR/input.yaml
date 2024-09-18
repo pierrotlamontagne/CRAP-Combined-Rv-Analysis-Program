@@ -26,6 +26,7 @@ instruments:
     ref_star: "CRAPSTAR"
     bin_label: "" # 2 for binned data, 1 for unbinned
     pca_label: "" # _PCA for PCA corrected data, "" for raw data
+    FFp_label: "_FFp_corrected" # "_FFp_corrected" to take RV data corrected for activity with technique from Aigrain et al. (2012)
     dtemp_suffix: ""
     start_time: [2000,1,1]
     end_time: [2024,6,6]
@@ -34,23 +35,21 @@ instruments:
     ref_star: "CRAPSTAR"
     bin_label: "" # 2 for binned data, 1 for unbinned
     pca_label: "" # _PCA for PCA corrected data, "" for raw data
+    FFp_label: "_FFp_corrected" # "_FFp_corrected" to take RV data corrected for activity with technique from Aigrain et al. (2012)
     dtemp_suffix: "3000"
     start_time: [2000,1,1]
     end_time: [2024,6,6]
 
-  AstroWiz:
-    ref_star: "CRAPSTAR"
-    bin_label: "" # 2 for binned data, 1 for unbinned
-    pca_label: "" # _PCA for PCA corrected data, "" for raw data
-    dtemp_suffix: "3000"
-    start_time: [2000,1,1]
-    end_time: [2024,6,6]
+  # AstroWiz:
+  #   ref_star: "CRAPSTAR"
+  #   bin_label: "" # 2 for binned data, 1 for unbinned
+  #   pca_label: "" # _PCA for PCA corrected data, "" for raw data
+  #   dtemp_suffix: "3000"
+  #   start_time: [2000,1,1]
+  #   end_time: [2024,6,6]
 
 # Whether to use the activity indicator model as a prior for the RV analysis
-use_indicator: True
-
-# Whether there is Dtemp data or not
-no_Dtemp: True
+use_indicator: False
 
 # Turn on to run the activity bayesian search
 run_activity: True
@@ -59,7 +58,7 @@ run_activity: True
 run_RV: True
 
 # MCMC or nested sampling
-sampler: "emcee" # "emcee" or "dynesty"
+sampler: "dynesty" # "emcee" or "dynesty"
 
 # Priors for the activity indicator model (GP)
 activity_priors:
@@ -158,11 +157,11 @@ RV_priors:
     mean: 1.0
     std: 1.0
     min: 0.001
-    max: 1.0
+    max: 10.0
 
   # Rotation period of the star
   GP_Prot: 
-    guess: 87.0
+    guess: 100.0
     distribution: "Uniform"
     mean: 87.0
     std: 10.0
@@ -184,7 +183,7 @@ RV_priors:
     distribution: "Uniform"
     mean: 20.0
     std: 10.0
-    min: 100.0
+    min: 50.0
     max: 1000.0
 
   # Number of sub-structures in a period
@@ -223,23 +222,23 @@ RV_priors:
     min: 0.0
     max: 10.0
 
-#   # Eccentricity of the planet
-#   e1:
-#     guess: 0.0
-#     distribution: "Uniform"
-#     mean: 0.0
-#     std: 0.1
-#     min: 0.0
-#     max: 1.0
+  # Eccentricity of the planet
+  e1:
+    guess: 0.0
+    distribution: "Uniform"
+    mean: 0.0
+    std: 0.1
+    min: 0.0
+    max: 1.0
 
-#  # Argument of periastron
-#   w1:
-#     guess: 1.57
-#     distribution: "Uniform"
-#     mean: 0.0
-#     std: 0.1
-#     min: 0.0
-#     max: 6.28318530718
+ # Argument of periastron
+  w1:
+    guess: 1.57
+    distribution: "Uniform"
+    mean: 0.0
+    std: 0.1
+    min: 0.0
+    max: 6.28318530718
 
   # Period of the planet
   per2:
@@ -268,23 +267,23 @@ RV_priors:
     min: 0.0
     max: 10.0
 
-#   # Eccentricity of the planet
-#   e2:
-#     guess: 0.0
-#     distribution: "Uniform"
-#     mean: 0.0
-#     std: 0.1
-#     min: 0.0
-#     max: 1.0
+  # Eccentricity of the planet
+  e2:
+    guess: 0.0
+    distribution: "Uniform"
+    mean: 0.0
+    std: 0.1
+    min: 0.0
+    max: 1.0
 
-#  # Argument of periastron
-#   w2:
-#     guess: 1.57
-#     distribution: "Uniform"
-#     mean: 0.0
-#     std: 0.1
-#     min: 0.0
-#     max: 6.28318530718
+ # Argument of periastron
+  w2:
+    guess: 1.57
+    distribution: "Uniform"
+    mean: 0.0
+    std: 0.1
+    min: 0.0
+    max: 6.28318530718
 
   # Period of the planet
   per3:
@@ -313,21 +312,21 @@ RV_priors:
     min: 0.0
     max: 10.0
 
-#   # Eccentricity of the planet
-#   e3:
-#     guess: 0.0
-#     distribution: "Uniform"
-#     mean: 0.0
-#     std: 0.1
-#     min: 0.0
-#     max: 1.0
+  # Eccentricity of the planet
+  e3:
+    guess: 0.0
+    distribution: "Uniform"
+    mean: 0.0
+    std: 0.1
+    min: 0.0
+    max: 1.0
 
-#  # Argument of periastron
-#   w3:
-#     guess: 1.57
-#     distribution: "Uniform"
-#     mean: 0.0
-#     std: 0.1
-#     min: 0.0
-#     max: 6.28318530718
+ # Argument of periastron
+  w3:
+    guess: 1.57
+    distribution: "Uniform"
+    mean: 0.0
+    std: 0.1
+    min: 0.0
+    max: 6.28318530718
 
